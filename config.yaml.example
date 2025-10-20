@@ -1,0 +1,65 @@
+# Mikrotik Router Configuration
+# 
+# This file contains the list of Mikrotik routers to inventory
+# and their access credentials.
+#
+# IMPORTANT: This file contains sensitive information!
+# - Do NOT commit this file to version control
+# - Use appropriate file permissions (chmod 600)
+# - Keep it secure and encrypted when possible
+
+# Default credentials (used if not specified per-router)
+default_credentials:
+  username: "admin"
+  password: "your-default-password"
+  port: 8728  # RouterOS API port
+  timeout: 10  # Connection timeout in seconds
+
+# List of routers to inventory
+routers:
+  # Example 1: Router with default credentials
+  - ip: "192.168.1.1"
+    # Will use default credentials
+
+  # Example 2: Router with custom credentials
+  - ip: "192.168.1.2"
+    username: "admin"
+    password: "custom-password"
+
+  # Example 3: Router with all custom settings
+  - ip: "192.168.1.3"
+    username: "superadmin"
+    password: "super-secure-password"
+    port: 8728
+    timeout: 15
+
+  # Example 4: Using hostname instead of IP
+  - ip: "router-backbone-01.local"
+    username: "admin"
+    password: "another-password"
+
+  # Add more routers below
+  # - ip: "10.0.0.1"
+  # - ip: "10.0.0.2"
+  # - ip: "10.0.0.3"
+
+# Output settings
+output:
+  directory: "output"  # Directory for saving inventory files
+  formats:
+    - "json"    # Save as JSON
+    - "yaml"    # Save as YAML
+    - "summary" # Save human-readable summary
+
+# Logging settings
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file: "mikrotik-inventory.log"
+  console: true
+
+# Collection settings
+collection:
+  parallel: false  # Collect data in parallel (faster but more resource intensive)
+  max_workers: 5   # Maximum parallel workers (if parallel is true)
+  retry_failed: false  # Retry failed connections
+  retry_attempts: 2    # Number of retry attempts

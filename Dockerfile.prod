@@ -1,0 +1,55 @@
+# ---- PRODUCTION DOCKERFILE ----
+# Immagine ottimizzata per production (multi-stage build)
+
+# Stage 1: Builder
+FROM python:3.12-slim AS builder
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Installa dipendenze di sistema necessarie
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copia i requirements
+COPY requirements.txt .
+
+# Installa le dipendenze in una directory separata
+RUN pip install --upgrade pip && \
+    pip install --user --no-cache-dir -r requirements.txt
+
+# Stage 2: Runtime
+FROM python:3.12-slim
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Installa solo le dipendenze di runtime necessarie
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copia le dipendenze compilate dal builder
+COPY --from=builder /root/.local /root/.local
+ENV PATH=/root/.local/bin:$PATH
+
+# Copia il codice dell'applicazione
+COPY src/ ./src/
+COPY config.yaml.example ./config.yaml
+
+# Metadata di produzione
+LABEL maintainer="L. Oliva" \
+      description="Ubiquiti Automation - Production" \
+      version="1.0.0"
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1 || true
+
+# Comando di default per production
+CMD ["python", "-u", "src/main.py"]

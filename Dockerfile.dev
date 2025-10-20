@@ -1,0 +1,42 @@
+# ---- DEVELOPMENT DOCKERFILE ----
+# Immagine per lo sviluppo con tutti gli strumenti
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PIP_NO_CACHE_DIR=1
+
+# Installa dipendenze di sistema per development
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    openssh-client \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copia i requirements per development
+COPY requirements-dev.txt .
+COPY requirements.txt .
+
+# Installa le dipendenze di development
+RUN pip install --upgrade pip && \
+    pip install -r requirements-dev.txt && \
+    pip install -r requirements.txt
+
+# Installa pre-commit hooks
+RUN pip install pre-commit commitizen
+
+# Configure git to trust the /app directory
+RUN git config --global --add safe.directory /app
+
+# Copia il resto del progetto
+COPY . .
+
+# Imposta il workdir per development
+WORKDIR /app
+
+# Comando di default per development
+CMD ["bash"]

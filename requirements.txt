@@ -1,0 +1,18 @@
+# File di requirements per production
+# Installa con: pip install -r requirements.txt
+
+# API Client
+routeros-api>=0.17.0
+
+# Data validation
+pydantic>=2.0.0
+
+# Configuration
+pyyaml>=6.0
+python-dotenv>=1.0.0
+
+# CLI & Output
+rich>=13.0.0
+
+# Logging
+python-json-logger>=2.0.0

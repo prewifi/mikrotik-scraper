@@ -1,0 +1,34 @@
+
+networks:
+  prod-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.16.100.0/29
+
+services:
+  ubiquiti-automation-prod:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: ubiquiti-automation-prod
+    restart: unless-stopped
+    volumes:
+      - ./inventory:/app/inventory:ro
+      - ./config.yaml:/app/config.yaml:ro
+      - ubiquiti-logs:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+    networks:
+      - prod-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  ubiquiti-logs:
+    driver: local

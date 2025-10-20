@@ -1,0 +1,17 @@
+networks:
+  dev-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.16.200.0/29
+services:
+  ubiquiti-automation:
+    build: .
+    container_name: ubiquiti-automation
+    volumes:
+      - .:/app
+    tty: true
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - dev-net

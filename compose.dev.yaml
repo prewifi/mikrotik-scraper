@@ -1,0 +1,31 @@
+networks:
+  dev-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.16.200.0/29
+
+services:
+  ubiquiti-automation-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: ubiquiti-automation-dev
+    volumes:
+      - .:/app
+      - .git:/app/.git
+      - ubiquiti-dev-cache:/app/.cache
+    tty: true
+    stdin_open: true
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+      - ENVIRONMENT=development
+    networks:
+      - dev-net
+    # ports:
+    #   - "8000:8000"
+
+volumes:
+  ubiquiti-dev-cache:
+    driver: local
