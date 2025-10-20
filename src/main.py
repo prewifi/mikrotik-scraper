@@ -361,13 +361,18 @@ def main():
         elif args.yaml_only:
             formats = ["yaml"]
 
+        # Save individual files for each router
         if "json" in formats:
-            json_path = inventory_manager.save_json(inventory)
-            console.print(f"[green]✓[/green] JSON saved: {json_path}")
+            console.print("[cyan]Saving JSON files per router...[/cyan]")
+            for router in routers:
+                json_path = inventory_manager.save_router_json(router)
+                console.print(f"[green]✓[/green] JSON saved: {json_path}")
 
         if "yaml" in formats:
-            yaml_path = inventory_manager.save_yaml(inventory)
-            console.print(f"[green]✓[/green] YAML saved: {yaml_path}")
+            console.print("[cyan]Saving YAML files per router...[/cyan]")
+            for router in routers:
+                yaml_path = inventory_manager.save_router_yaml(router)
+                console.print(f"[green]✓[/green] YAML saved: {yaml_path}")
 
         if "summary" in formats:
             summary_path = inventory_manager.save_summary(inventory)

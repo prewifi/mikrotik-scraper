@@ -13,7 +13,7 @@ from typing import Optional
 
 import yaml
 
-from models import NetworkInventory
+from models import NetworkInventory, Router
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +51,8 @@ class InventoryManager:
             # Generate filename with pattern: {Hostname}_{YYYYMMDD}_{HHMMSS}.json
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-            # Get first router's identity as hostname, or use "inventory" if no routers
+            # Use first router's identity as hostname
             if inventory.routers and len(inventory.routers) > 0:
-                # Clean hostname for filesystem (replace spaces and special chars)
                 hostname = inventory.routers[0].identity.replace(" ", "_").replace("/", "_")
                 filename = f"{hostname}_{timestamp}.json"
             else:
@@ -75,6 +74,40 @@ class InventoryManager:
             logger.error(f"Error saving inventory to JSON: {e}")
             raise
 
+    def save_router_json(self, router: Router, filename: Optional[str] = None) -> Path:
+        """
+        Save a single router's data to a JSON file.
+
+        Parameters:
+            router (Router): The router to save.
+            filename (Optional[str]): Custom filename (default: auto-generated).
+
+        Returns:
+            Path: Path to the saved file.
+        """
+        if filename is None:
+            # Generate filename with pattern: {RouterIdentity}_{YYYYMMDD}_{HHMMSS}.json
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            hostname = router.identity.replace(" ", "_").replace("/", "_")
+            filename = f"{hostname}_{timestamp}.json"
+
+        filepath = self.output_dir / filename
+
+        try:
+            # Create inventory with single router
+            inventory = NetworkInventory(routers=[router])
+            inventory_dict = inventory.model_dump(mode="json")
+
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(inventory_dict, f, indent=2, ensure_ascii=False)
+
+            logger.info(f"Router data saved to JSON: {filepath}")
+            return filepath
+
+        except Exception as e:
+            logger.error(f"Error saving router data to JSON: {e}")
+            raise
+
     def save_yaml(self, inventory: NetworkInventory, filename: Optional[str] = None) -> Path:
         """
         Save inventory to a YAML file.
@@ -90,9 +123,8 @@ class InventoryManager:
             # Generate filename with pattern: {Hostname}_{YYYYMMDD}_{HHMMSS}.yaml
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-            # Get first router's identity as hostname, or use "inventory" if no routers
+            # Use first router's identity as hostname
             if inventory.routers and len(inventory.routers) > 0:
-                # Clean hostname for filesystem (replace spaces and special chars)
                 hostname = inventory.routers[0].identity.replace(" ", "_").replace("/", "_")
                 filename = f"{hostname}_{timestamp}.yaml"
             else:
@@ -118,6 +150,46 @@ class InventoryManager:
 
         except Exception as e:
             logger.error(f"Error saving inventory to YAML: {e}")
+            raise
+
+    def save_router_yaml(self, router: Router, filename: Optional[str] = None) -> Path:
+        """
+        Save a single router's data to a YAML file.
+
+        Parameters:
+            router (Router): The router to save.
+            filename (Optional[str]): Custom filename (default: auto-generated).
+
+        Returns:
+            Path: Path to the saved file.
+        """
+        if filename is None:
+            # Generate filename with pattern: {RouterIdentity}_{YYYYMMDD}_{HHMMSS}.yaml
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            hostname = router.identity.replace(" ", "_").replace("/", "_")
+            filename = f"{hostname}_{timestamp}.yaml"
+
+        filepath = self.output_dir / filename
+
+        try:
+            # Create inventory with single router
+            inventory = NetworkInventory(routers=[router])
+            inventory_dict = inventory.model_dump(mode="json")
+
+            with open(filepath, "w", encoding="utf-8") as f:
+                yaml.safe_dump(
+                    inventory_dict,
+                    f,
+                    default_flow_style=False,
+                    allow_unicode=True,
+                    sort_keys=False,
+                )
+
+            logger.info(f"Router data saved to YAML: {filepath}")
+            return filepath
+
+        except Exception as e:
+            logger.error(f"Error saving router data to YAML: {e}")
             raise
 
     def load_json(self, filepath: Path | str) -> NetworkInventory:
