@@ -58,6 +58,11 @@ case "$1" in
     docker compose -f compose.dev.yaml exec ubiquiti-automation-dev cz commit
     ;;
 
+  "run:inventory")
+    echo "Running inventory collection with config.yaml..."
+    docker compose -f compose.dev.yaml exec ubiquiti-automation-dev python3 src/main.py -c config.yaml
+    ;;
+
   "logs:dev")
     docker compose -f compose.dev.yaml logs -f ubiquiti-automation-dev
     ;;
@@ -92,6 +97,9 @@ case "$1" in
     echo ""
     echo "Git:"
     echo "  commit           - Interactive commit with cz"
+    echo ""
+    echo "Inventory:"
+    echo "  run:inventory    - Run inventory collection with config.yaml"
     echo ""
     echo "Logs:"
     echo "  logs:dev         - Development logs"
