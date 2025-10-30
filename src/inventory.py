@@ -351,3 +351,115 @@ class InventoryManager:
         """
         files = self.list_inventories(format)
         return files[0] if files else None
+
+    def get_backup_directory(self) -> Path:
+        """
+        Get or create the backup directory.
+
+        Returns:
+            Path: Path to the backup directory.
+        """
+        backup_dir = self.output_dir / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        return backup_dir
+
+    def get_router_backup_directory(self, router_identity: str) -> Path:
+        """
+        Get or create the backup directory for a specific router.
+
+        Parameters:
+            router_identity (str): Router identity/hostname.
+
+        Returns:
+            Path: Path to the router's backup directory.
+        """
+        # Sanitize router identity for use in path
+        safe_identity = router_identity.replace(" ", "_").replace("/", "_").lower()
+        backup_dir = self.get_backup_directory()
+        router_dir = backup_dir / safe_identity
+
+        router_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Router backup directory: {router_dir}")
+
+        return router_dir
+
+    def cleanup_old_backups(
+        self,
+        router_identity: str,
+        keep_count: int = 5,
+        file_types: list = None,
+    ) -> int:
+        """
+        Clean up old backup files, keeping only the most recent ones.
+
+        Parameters:
+            router_identity (str): Router identity/hostname.
+            keep_count (int): Number of most recent backups to keep (default: 5).
+            file_types (list): File extensions to clean (default: ['.backup', '.rsc']).
+
+        Returns:
+            int: Number of files deleted.
+        """
+        if file_types is None:
+            file_types = [".backup", ".rsc"]
+
+        try:
+            router_dir = self.get_router_backup_directory(router_identity)
+            deleted_count = 0
+
+            for file_ext in file_types:
+                # Get all files of this type sorted by modification time
+                files = sorted(
+                    router_dir.glob(f"*{file_ext}"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
+
+                # Delete old files
+                if len(files) > keep_count:
+                    for old_file in files[keep_count:]:
+                        try:
+                            old_file.unlink()
+                            deleted_count += 1
+                            logger.info(f"Deleted old backup: {old_file}")
+                        except Exception as e:
+                            logger.warning(f"Error deleting old backup {old_file}: {e}")
+
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"Error during backup cleanup: {e}")
+            return 0
+
+    def get_backup_statistics(self, router_identity: str) -> dict:
+        """
+        Get statistics about backups for a router.
+
+        Parameters:
+            router_identity (str): Router identity/hostname.
+
+        Returns:
+            dict: Dictionary with backup statistics.
+        """
+        try:
+            router_dir = self.get_router_backup_directory(router_identity)
+
+            backup_files = list(router_dir.glob("*.backup"))
+            rsc_files = list(router_dir.glob("*.rsc"))
+
+            total_size = sum(f.stat().st_size for f in backup_files + rsc_files)
+
+            return {
+                "router": router_identity,
+                "backup_count": len(backup_files),
+                "rsc_count": len(rsc_files),
+                "total_files": len(backup_files) + len(rsc_files),
+                "total_size_bytes": total_size,
+                "total_size_mb": round(total_size / (1024 * 1024), 2),
+                "backup_dir": str(router_dir),
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting backup statistics: {e}")
+            return {}
+

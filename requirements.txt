@@ -16,3 +16,8 @@ rich>=13.0.0
 
 # Logging
 python-json-logger>=2.0.0
+
+# SFTP & SSH
+paramiko>=3.0.0
+cryptography>=41.0.0
+

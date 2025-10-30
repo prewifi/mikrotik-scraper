@@ -63,3 +63,29 @@ collection:
   max_workers: 5   # Maximum parallel workers (if parallel is true)
   retry_failed: false  # Retry failed connections
   retry_attempts: 2    # Number of retry attempts
+
+# Backup and SFTP settings
+backup:
+  enabled: true  # Enable backup functionality
+  directory: "inventory/backups"  # Base directory for storing backups
+  use_sftp: true  # Use SFTP for secure file transfer (recommended)
+  create_backup: true  # Create RouterOS backup files (.backup)
+  export_config: true  # Export configuration as RSC files (.rsc)
+  keep_count: 5  # Number of recent backups to keep per router
+  cleanup_old: true  # Automatically clean up old backups
+
+# SFTP settings (for backup download)
+sftp:
+  enabled: true  # Enable SFTP for backup transfer
+  port: 22  # SSH/SFTP port on router
+  timeout: 30  # SFTP connection timeout in seconds
+  # Optional: specify different credentials for SFTP if needed
+  # If not specified, will use default_credentials
+  # username: "api-user"
+  # password: "sftp-password"
+
+collection:
+  parallel: false  # Collect data in parallel (faster but more resource intensive)
+  max_workers: 5   # Maximum parallel workers (if parallel is true)
+  retry_failed: false  # Retry failed connections
+  retry_attempts: 2    # Number of retry attempts

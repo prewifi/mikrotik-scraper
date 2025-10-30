@@ -19,9 +19,11 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRe
 from rich.table import Table
 
 from analyzer import NetworkAnalyzer
+from backup_manager import BackupManager
 from inventory import InventoryManager
 from mikrotik_client import MikrotikClient
 from models import Router
+from sftp_client import SFTPClientManager
 
 console = Console()
 
@@ -288,6 +290,246 @@ def display_summary(inventory) -> None:
         console.print(f"  [blue]Info: {info}[/blue]")
 
 
+def backup_router_data(
+    router: Router,
+    ip: str,
+    username: str,
+    password: str,
+    port: int,
+    timeout: int,
+    sftp_username: Optional[str],
+    sftp_password: Optional[str],
+    sftp_port: int,
+    sftp_timeout: int,
+    backup_config: Dict,
+) -> Tuple[bool, str]:
+    """
+    Create and download backup files from a single router.
+
+    Parameters:
+        router (Router): Router object.
+        ip (str): Router IP address.
+        username (str): API username.
+        password (str): API password.
+        port (int): API port.
+        timeout (int): API connection timeout.
+        sftp_username (Optional[str]): SFTP username.
+        sftp_password (Optional[str]): SFTP password.
+        sftp_port (int): SFTP port.
+        sftp_timeout (int): SFTP connection timeout.
+        backup_config (Dict): Backup configuration.
+
+    Returns:
+        Tuple[bool, str]: Success status and message.
+    """
+    logger = logging.getLogger(__name__)
+
+    try:
+        backup_manager = BackupManager(
+            backup_dir=backup_config.get("directory", "inventory/backups"),
+            use_sftp=backup_config.get("use_sftp", True),
+        )
+
+        router_backup_dir = backup_manager.get_router_backup_dir(router.identity)
+
+        # Connect to router via API for creating backups
+        api_client = MikrotikClient(ip, username, password, port, timeout)
+        if not api_client.connect():
+            return False, f"Failed to connect to {router.identity} via API"
+
+        # Create new backup if configured
+        if backup_config.get("create_backup", True):
+            console.print(f"  [yellow]→[/yellow] Creating backup on {router.identity}...")
+            success, backup_filename = api_client.create_backup()
+            if not success:
+                console.print(f"  [yellow]  ⚠ Backup creation failed[/yellow]")
+
+        # Create RSC export if configured
+        if backup_config.get("export_config", True):
+            console.print(f"  [yellow]→[/yellow] Exporting configuration from {router.identity}...")
+            success, export_filename = api_client.export_configuration()
+            if not success:
+                console.print(f"  [yellow]  ⚠ Configuration export failed[/yellow]")
+
+        api_client.disconnect()
+
+        # Download backup files via SFTP
+        console.print(f"  [yellow]→[/yellow] Downloading backup files via SFTP...")
+
+        sftp_client = SFTPClientManager(
+            host=ip,
+            username=sftp_username or username,
+            password=sftp_password or password,
+            port=sftp_port,
+            timeout=sftp_timeout,
+        )
+
+        if not sftp_client.connect():
+            return False, f"Failed to connect to {router.identity} via SFTP"
+
+        try:
+            # Get available backup files
+            backup_files = backup_manager.get_backup_files(sftp_client) or []
+            rsc_files = backup_manager.get_rsc_files(sftp_client) or []
+
+            # Download backup files
+            if backup_files:
+                console.print(
+                    f"  [cyan]  Found {len(backup_files)} backup file(s)[/cyan]"
+                )
+                successful, failed = backup_manager.download_backup_files(
+                    sftp_client, router, backup_files, router_backup_dir
+                )
+
+                if successful:
+                    console.print(
+                        f"  [green]  ✓ Downloaded {len(successful)} backup(s)[/green]"
+                    )
+                if failed:
+                    console.print(
+                        f"  [yellow]  ✗ Failed to download {len(failed)} backup(s)[/yellow]"
+                    )
+
+            # Download RSC files
+            if rsc_files:
+                console.print(
+                    f"  [cyan]  Found {len(rsc_files)} RSC file(s)[/cyan]"
+                )
+                successful, failed = backup_manager.download_rsc_files(
+                    sftp_client, router, rsc_files, router_backup_dir
+                )
+
+                if successful:
+                    console.print(
+                        f"  [green]  ✓ Downloaded {len(successful)} RSC file(s)[/green]"
+                    )
+                if failed:
+                    console.print(
+                        f"  [yellow]  ✗ Failed to download {len(failed)} RSC file(s)[/yellow]"
+                    )
+
+            # Clean up old backups if configured
+            if backup_config.get("cleanup_old", True):
+                keep_count = backup_config.get("keep_count", 5)
+                deleted = backup_manager.cleanup_old_backups(router.identity, keep_count)
+                if deleted > 0:
+                    console.print(f"  [blue]  Cleaned up {deleted} old backup(s)[/blue]")
+
+            # Get backup statistics
+            stats = backup_manager.get_backup_statistics(router.identity)
+            if stats.get("total_files", 0) > 0:
+                console.print(
+                    f"  [green]✓[/green] {router.identity}: "
+                    f"{stats['total_files']} file(s) ({stats['total_size_mb']} MB)"
+                )
+            else:
+                console.print(
+                    f"  [yellow]⚠[/yellow] {router.identity}: No backup files found"
+                )
+
+            return True, f"Backup completed for {router.identity}"
+
+        finally:
+            sftp_client.disconnect()
+
+    except Exception as e:
+        logger.error(f"Error backing up {router.identity}: {e}")
+        return False, f"Error backing up {router.identity}: {e}"
+
+
+def backup_all_routers(
+    routers: List[Router], config: Dict, router_configs: List[Dict]
+) -> None:
+    """
+    Create and download backups from all routers.
+
+    Parameters:
+        routers (List[Router]): List of router objects.
+        config (Dict): Main configuration dictionary.
+        router_configs (List[Dict]): Router-specific configurations.
+    """
+    backup_config = config.get("backup", {})
+    sftp_config = config.get("sftp", {})
+    default_creds = config.get("default_credentials", {})
+
+    if not backup_config.get("enabled", True):
+        console.print("[yellow]Backup is disabled in configuration[/yellow]")
+        return
+
+    console.print(
+        f"\n[bold cyan]Starting backup process for {len(routers)} router(s)...[/bold cyan]\n"
+    )
+
+    sftp_enabled = sftp_config.get("enabled", True)
+    sftp_port = sftp_config.get("port", 22)
+    sftp_timeout = sftp_config.get("timeout", 30)
+
+    backup_results = []
+
+    for router in routers:
+        # Find router config for this router
+        router_config = None
+        for rc in router_configs:
+            if rc.get("ip") == router.ip_address:
+                router_config = rc
+                break
+
+        if not router_config:
+            console.print(f"[yellow]⚠[/yellow] No configuration found for {router.identity}")
+            continue
+
+        # Get credentials
+        username = router_config.get("username", default_creds.get("username"))
+        password = router_config.get("password", default_creds.get("password"))
+        port = router_config.get("port", default_creds.get("port", 8728))
+        timeout = router_config.get("timeout", default_creds.get("timeout", 10))
+
+        sftp_username = sftp_config.get("username")
+        sftp_password = sftp_config.get("password")
+
+        console.print(f"[bold cyan]Backing up: {router.identity} ({router.ip_address})[/bold cyan]")
+
+        success, message = backup_router_data(
+            router,
+            router.ip_address,
+            username,
+            password,
+            port,
+            timeout,
+            sftp_username,
+            sftp_password,
+            sftp_port,
+            sftp_timeout,
+            backup_config,
+        )
+
+        backup_results.append((router.identity, success, message))
+
+    # Display backup results summary
+    if backup_results:
+        console.print(
+            "\n[bold cyan]═══════════════════════════════════════════════════════════════════════[/bold cyan]"
+        )
+        console.print(
+            "[bold cyan]                     BACKUP SUMMARY                                  [/bold cyan]"
+        )
+        console.print(
+            "[bold cyan]═══════════════════════════════════════════════════════════════════════[/bold cyan]\n"
+        )
+
+        results_table = Table(show_header=True, header_style="bold magenta")
+        results_table.add_column("Router", style="cyan")
+        results_table.add_column("Status", justify="center")
+        results_table.add_column("Message", style="white")
+
+        for router_name, success, message in backup_results:
+            status = "[green]✓ SUCCESS[/green]" if success else "[red]✗ FAILED[/red]"
+            results_table.add_row(router_name, status, message)
+
+        console.print(results_table)
+        console.print()
+
+
 def main():
     """Main entry point for the application."""
     parser = argparse.ArgumentParser(
@@ -303,6 +545,14 @@ def main():
     parser.add_argument("-o", "--output-dir", help="Override output directory from config")
     parser.add_argument("--json-only", action="store_true", help="Save only JSON format")
     parser.add_argument("--yaml-only", action="store_true", help="Save only YAML format")
+    parser.add_argument(
+        "--backup", action="store_true", help="Create and download backups after inventory"
+    )
+    parser.add_argument(
+        "--backup-only",
+        action="store_true",
+        help="Only perform backup operations (skip inventory)",
+    )
 
     args = parser.parse_args()
 
@@ -325,60 +575,79 @@ def main():
             "[bold blue]╚═══════════════════════════════════════════════════════════════════╝[/bold blue]\n"
         )
 
-        # Collect data from all routers
-        routers = collect_all_routers(config)
+        if args.backup_only:
+            # Backup only mode - collect data first, then backup
+            console.print("[bold cyan]Backup-only mode: collecting router data first...[/bold cyan]")
+            routers = collect_all_routers(config)
 
-        if not routers:
-            console.print("[red]No routers were successfully queried. Exiting.[/red]")
-            sys.exit(1)
+            if not routers:
+                console.print("[red]No routers were successfully queried. Exiting.[/red]")
+                sys.exit(1)
 
-        # Analyze network topology (if enabled)
-        analysis_config = config.get("analysis", {})
-        if analysis_config.get("enabled", True):
-            console.print("[bold cyan]Analyzing network topology...[/bold cyan]")
-            analyzer = NetworkAnalyzer(routers, analysis_config)
-            inventory = analyzer.analyze()
+            # Perform backup
+            router_configs = config.get("routers", [])
+            backup_all_routers(routers, config, router_configs)
+
         else:
-            # Skip analysis, just create basic inventory
-            from models import NetworkInventory
+            # Normal mode - collect inventory
+            routers = collect_all_routers(config)
 
-            inventory = NetworkInventory(routers=routers, links=[], anomalies=[])
-            console.print("[yellow]Analysis disabled - skipping topology analysis[/yellow]")
+            if not routers:
+                console.print("[red]No routers were successfully queried. Exiting.[/red]")
+                sys.exit(1)
 
-        # Display summary
-        display_summary(inventory)
+            # Analyze network topology (if enabled)
+            analysis_config = config.get("analysis", {})
+            if analysis_config.get("enabled", True):
+                console.print("[bold cyan]Analyzing network topology...[/bold cyan]")
+                analyzer = NetworkAnalyzer(routers, analysis_config)
+                inventory = analyzer.analyze()
+            else:
+                # Skip analysis, just create basic inventory
+                from models import NetworkInventory
 
-        # Save inventory
-        output_dir = args.output_dir or config.get("output", {}).get("directory", "output")
-        inventory_manager = InventoryManager(output_dir)
+                inventory = NetworkInventory(routers=routers, links=[], anomalies=[])
+                console.print("[yellow]Analysis disabled - skipping topology analysis[/yellow]")
 
-        console.print(f"\n[bold cyan]Saving inventory to: {output_dir}[/bold cyan]\n")
+            # Display summary
+            display_summary(inventory)
 
-        formats = config.get("output", {}).get("formats", ["json", "yaml", "summary"])
+            # Save inventory
+            output_dir = args.output_dir or config.get("output", {}).get("directory", "output")
+            inventory_manager = InventoryManager(output_dir)
 
-        if args.json_only:
-            formats = ["json"]
-        elif args.yaml_only:
-            formats = ["yaml"]
+            console.print(f"\n[bold cyan]Saving inventory to: {output_dir}[/bold cyan]\n")
 
-        # Save individual files for each router
-        if "json" in formats:
-            console.print("[cyan]Saving JSON files per router...[/cyan]")
-            for router in routers:
-                json_path = inventory_manager.save_router_json(router)
-                console.print(f"[green]✓[/green] JSON saved: {json_path}")
+            formats = config.get("output", {}).get("formats", ["json", "yaml", "summary"])
 
-        if "yaml" in formats:
-            console.print("[cyan]Saving YAML files per router...[/cyan]")
-            for router in routers:
-                yaml_path = inventory_manager.save_router_yaml(router)
-                console.print(f"[green]✓[/green] YAML saved: {yaml_path}")
+            if args.json_only:
+                formats = ["json"]
+            elif args.yaml_only:
+                formats = ["yaml"]
 
-        if "summary" in formats:
-            summary_path = inventory_manager.save_summary(inventory)
-            console.print(f"[green]✓[/green] Summary saved: {summary_path}")
+            # Save individual files for each router
+            if "json" in formats:
+                console.print("[cyan]Saving JSON files per router...[/cyan]")
+                for router in routers:
+                    json_path = inventory_manager.save_router_json(router)
+                    console.print(f"[green]✓[/green] JSON saved: {json_path}")
 
-        console.print("\n[bold green]✓ Inventory collection completed successfully![/bold green]\n")
+            if "yaml" in formats:
+                console.print("[cyan]Saving YAML files per router...[/cyan]")
+                for router in routers:
+                    yaml_path = inventory_manager.save_router_yaml(router)
+                    console.print(f"[green]✓[/green] YAML saved: {yaml_path}")
+
+            if "summary" in formats:
+                summary_path = inventory_manager.save_summary(inventory)
+                console.print(f"[green]✓[/green] Summary saved: {summary_path}")
+
+            console.print("\n[bold green]✓ Inventory collection completed successfully![/bold green]\n")
+
+            # Perform backup if requested
+            if args.backup:
+                router_configs = config.get("routers", [])
+                backup_all_routers(routers, config, router_configs)
 
     except KeyboardInterrupt:
         console.print("\n\n[yellow]Operation cancelled by user.[/yellow]")

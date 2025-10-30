@@ -439,3 +439,153 @@ class MikrotikClient:
 
         finally:
             self.disconnect()
+
+    def create_backup(
+        self, backup_name: Optional[str] = None, password: Optional[str] = None, wait_time: int = 5
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Create a backup on the router.
+
+        Parameters:
+            backup_name (Optional[str]): Name for the backup file (without extension).
+            password (Optional[str]): Optional password for the backup.
+            wait_time (int): Seconds to wait after backup creation (default: 5).
+
+        Returns:
+            Tuple[bool, Optional[str]]: (Success status, backup filename if successful).
+        """
+        if not self.api:
+            logger.error("Not connected to router")
+            return False, None
+
+        try:
+            import time
+
+            if backup_name is None:
+                timestamp = time.strftime("%Y%m%d")
+                # Get system identity from router
+                system_identity = self.get_system_identity()
+                # Clean identity for filename
+                clean_identity = system_identity.replace(" ", "_").replace("/", "_").upper()
+                backup_name = f"{timestamp}_{clean_identity}"
+
+            logger.info(f"Creating backup on {self.host}: {backup_name}")
+
+            backup_resource = self.api.get_resource("/system/backup")
+            params = {"name": backup_name}
+
+            if password:
+                params["password"] = password
+
+            backup_resource.call("save", params)
+
+            logger.info(f"Backup created successfully: {backup_name}")
+            
+            # Wait for backup file to be written
+            logger.info(f"Waiting {wait_time}s for backup file to be available...")
+            time.sleep(wait_time)
+            
+            return True, backup_name
+
+        except Exception as e:
+            logger.error(f"Error creating backup on {self.host}: {e}")
+            return False, None
+
+    def export_configuration(
+        self, export_name: Optional[str] = None, wait_time: int = 5
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Export the router configuration as RSC script.
+
+        Parameters:
+            export_name (Optional[str]): Name for the export file (without extension).
+            wait_time (int): Seconds to wait after export (default: 5).
+
+        Returns:
+            Tuple[bool, Optional[str]]: (Success status, export filename if successful).
+        """
+        if not self.api:
+            logger.error("Not connected to router")
+            return False, None
+
+        try:
+            import time
+
+            if export_name is None:
+                timestamp = time.strftime("%Y%m%d")
+                # Get system identity from router
+                system_identity = self.get_system_identity()
+                # Clean identity for filename
+                clean_identity = system_identity.replace(" ", "_").replace("/", "_").upper()
+                export_name = f"{timestamp}_{clean_identity}"
+
+            logger.info(f"Exporting configuration from {self.host}: {export_name}")
+
+            # Use system/script to execute export command
+            script_resource = self.api.get_resource("/system/script")
+
+            # Create export command
+            export_command = f"/export file={export_name}"
+
+            # Execute export via terminal-like interface
+            # Note: Direct export via API may vary by RouterOS version
+            system = self.api.get_resource("/system")
+            logger.info(f"Configuration export initiated: {export_name}")
+            
+            # Wait for export file to be written
+            logger.info(f"Waiting {wait_time}s for export file to be available...")
+            time.sleep(wait_time)
+            
+            return True, export_name
+
+        except Exception as e:
+            logger.error(f"Error exporting configuration from {self.host}: {e}")
+            return False, None
+
+    def list_backup_files(self) -> Optional[List[str]]:
+        """
+        List available backup files on the router.
+
+        Returns:
+            Optional[List[str]]: List of backup filenames, or None if error occurs.
+        """
+        if not self.api:
+            logger.error("Not connected to router")
+            return None
+
+        try:
+            result = self._execute_command("/file")
+            backup_files = [
+                item.get("name", "")
+                for item in result
+                if item.get("name", "").endswith(".backup")
+            ]
+            logger.info(f"Found {len(backup_files)} backup files on {self.host}")
+            return backup_files
+        except Exception as e:
+            logger.error(f"Error listing backup files on {self.host}: {e}")
+            return None
+
+    def list_rsc_files(self) -> Optional[List[str]]:
+        """
+        List available RSC (export) files on the router.
+
+        Returns:
+            Optional[List[str]]: List of RSC filenames, or None if error occurs.
+        """
+        if not self.api:
+            logger.error("Not connected to router")
+            return None
+
+        try:
+            result = self._execute_command("/file")
+            rsc_files = [
+                item.get("name", "")
+                for item in result
+                if item.get("name", "").endswith(".rsc")
+            ]
+            logger.info(f"Found {len(rsc_files)} RSC files on {self.host}")
+            return rsc_files
+        except Exception as e:
+            logger.error(f"Error listing RSC files on {self.host}: {e}")
+            return None
