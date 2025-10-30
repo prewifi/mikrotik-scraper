@@ -326,7 +326,7 @@ def backup_router_data(
 
     try:
         backup_manager = BackupManager(
-            backup_dir=backup_config.get("directory", "inventory/backups"),
+            backup_dir=backup_config.get("directory", "inventory"),
             use_sftp=backup_config.get("use_sftp", True),
         )
 

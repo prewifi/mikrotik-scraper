@@ -31,14 +31,14 @@ class BackupManager:
 
     def __init__(
         self,
-        backup_dir: str = "inventory/backups",
+        backup_dir: str = "inventory",
         use_sftp: bool = True,
     ):
         """
         Initialize the backup manager.
 
         Parameters:
-            backup_dir (str): Base directory for storing backups locally.
+            backup_dir (str): Base directory for storing backups (default: "inventory").
             use_sftp (bool): Whether to use SFTP for file transfer (default: True).
         """
         self.backup_dir = Path(backup_dir)
@@ -355,14 +355,17 @@ class BackupManager:
             router_identity (str): Router identity/hostname.
 
         Returns:
-            Path: Path to the router's backup directory.
+            Path: Path to the router's backup directory (inventory/{ROUTER_NAME}/backups).
         """
         # Sanitize router identity for use in path
-        safe_identity = router_identity.replace(" ", "_").replace("/", "_")
-        router_backup_dir = self.backup_dir / safe_identity
+        safe_identity = router_identity.replace(" ", "_").replace("/", "_").upper()
+        router_dir = self.backup_dir / safe_identity
+        router_backup_dir = router_dir / "backups"
 
         router_backup_dir.mkdir(parents=True, exist_ok=True)
         logger.debug(f"Router backup directory: {router_backup_dir}")
+
+        return router_backup_dir
 
         return router_backup_dir
 

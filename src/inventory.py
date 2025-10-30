@@ -76,7 +76,7 @@ class InventoryManager:
 
     def save_router_json(self, router: Router, filename: Optional[str] = None) -> Path:
         """
-        Save a single router's data to a JSON file.
+        Save a single router's data to a JSON file in the router's stats directory.
 
         Parameters:
             router (Router): The router to save.
@@ -88,10 +88,12 @@ class InventoryManager:
         if filename is None:
             # Generate filename with pattern: {RouterIdentity}_{YYYYMMDD}_{HHMMSS}.json
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            hostname = router.identity.replace(" ", "_").replace("/", "_")
+            hostname = router.identity.replace(" ", "_").replace("/", "_").upper()
             filename = f"{hostname}_{timestamp}.json"
 
-        filepath = self.output_dir / filename
+        # Save in router's stats directory
+        stats_dir = self.get_router_stats_directory(router.identity)
+        filepath = stats_dir / filename
 
         try:
             # Create inventory with single router
@@ -154,7 +156,7 @@ class InventoryManager:
 
     def save_router_yaml(self, router: Router, filename: Optional[str] = None) -> Path:
         """
-        Save a single router's data to a YAML file.
+        Save a single router's data to a YAML file in the router's stats directory.
 
         Parameters:
             router (Router): The router to save.
@@ -166,10 +168,12 @@ class InventoryManager:
         if filename is None:
             # Generate filename with pattern: {RouterIdentity}_{YYYYMMDD}_{HHMMSS}.yaml
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            hostname = router.identity.replace(" ", "_").replace("/", "_")
+            hostname = router.identity.replace(" ", "_").replace("/", "_").upper()
             filename = f"{hostname}_{timestamp}.yaml"
 
-        filepath = self.output_dir / filename
+        # Save in router's stats directory
+        stats_dir = self.get_router_stats_directory(router.identity)
+        filepath = stats_dir / filename
 
         try:
             # Create inventory with single router
@@ -354,14 +358,31 @@ class InventoryManager:
 
     def get_backup_directory(self) -> Path:
         """
-        Get or create the backup directory.
+        Get the inventory directory (parent directory for all routers).
 
         Returns:
-            Path: Path to the backup directory.
+            Path: Path to the inventory directory.
         """
-        backup_dir = self.output_dir / "backups"
-        backup_dir.mkdir(parents=True, exist_ok=True)
-        return backup_dir
+        return self.output_dir
+
+    def get_router_directory(self, router_identity: str) -> Path:
+        """
+        Get or create the directory for a specific router.
+
+        Parameters:
+            router_identity (str): Router identity/hostname.
+
+        Returns:
+            Path: Path to the router's main directory.
+        """
+        # Sanitize router identity for use in path
+        safe_identity = router_identity.replace(" ", "_").replace("/", "_").upper()
+        router_dir = self.output_dir / safe_identity
+
+        router_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Router directory: {router_dir}")
+
+        return router_dir
 
     def get_router_backup_directory(self, router_identity: str) -> Path:
         """
@@ -373,15 +394,31 @@ class InventoryManager:
         Returns:
             Path: Path to the router's backup directory.
         """
-        # Sanitize router identity for use in path
-        safe_identity = router_identity.replace(" ", "_").replace("/", "_").lower()
-        backup_dir = self.get_backup_directory()
-        router_dir = backup_dir / safe_identity
+        router_dir = self.get_router_directory(router_identity)
+        backup_dir = router_dir / "backups"
 
-        router_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Router backup directory: {router_dir}")
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Router backup directory: {backup_dir}")
 
-        return router_dir
+        return backup_dir
+
+    def get_router_stats_directory(self, router_identity: str) -> Path:
+        """
+        Get or create the stats directory for a specific router.
+
+        Parameters:
+            router_identity (str): Router identity/hostname.
+
+        Returns:
+            Path: Path to the router's stats directory.
+        """
+        router_dir = self.get_router_directory(router_identity)
+        stats_dir = router_dir / "stats"
+
+        stats_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Router stats directory: {stats_dir}")
+
+        return stats_dir
 
     def cleanup_old_backups(
         self,
