@@ -106,6 +106,40 @@ class SFTPClientManager:
         except Exception as e:
             logger.warning(f"Error disconnecting from {self.host}: {e}")
 
+    def execute_command(self, command: str, timeout: int = 30) -> tuple[bool, str, str]:
+        """
+        Execute a command on the router via SSH.
+
+        Parameters:
+            command (str): Command to execute.
+            timeout (int): Command execution timeout in seconds (default: 30).
+
+        Returns:
+            tuple[bool, str, str]: (Success status, stdout, stderr).
+        """
+        if not self.ssh_client:
+            logger.error("SSH client not connected")
+            return False, "", "SSH client not connected"
+
+        try:
+            logger.info(f"Executing command on {self.host}: {command}")
+            stdin, stdout, stderr = self.ssh_client.exec_command(command, timeout=timeout)
+            
+            stdout_text = stdout.read().decode('utf-8')
+            stderr_text = stderr.read().decode('utf-8')
+            exit_status = stdout.channel.recv_exit_status()
+            
+            if exit_status == 0:
+                logger.info(f"Command executed successfully on {self.host}")
+                return True, stdout_text, stderr_text
+            else:
+                logger.warning(f"Command failed on {self.host} with exit status {exit_status}")
+                return False, stdout_text, stderr_text
+                
+        except Exception as e:
+            logger.error(f"Error executing command on {self.host}: {e}")
+            return False, "", str(e)
+
     def upload_file(
         self, local_path: str, remote_path: str, create_remote_dirs: bool = True
     ) -> bool:

@@ -383,12 +383,48 @@ def backup_router_data(
                 sftp_client.disconnect()
 
         # Create RSC export if configured
+        export_filenames = []
         if backup_config.get("export_config", True):
-            console.print(f"  [yellow]→[/yellow] Exporting configuration from {router.identity}...")
-            success, export_filename = api_client.export_configuration()
-            if not success:
-                console.print(f"  [yellow]  ⚠ Configuration export failed[/yellow]")
-                export_filename = None
+            # Connect via SSH/SFTP to check and export RSC files
+            sftp_client = SFTPClientManager(
+                host=ip,
+                username=sftp_username or username,
+                password=sftp_password or password,
+                port=sftp_port,
+                timeout=sftp_timeout,
+            )
+
+            if not sftp_client.connect():
+                return False, f"Failed to connect to {router.identity} via SSH/SFTP for RSC export"
+
+            try:
+                # Generate the RSC name that would be created
+                timestamp = time.strftime("%Y%m%d")
+                try:
+                    identity_resource = api_client.api.get_resource("/system/identity")
+                    identity_data = identity_resource.get()
+                    system_identity = identity_data.get("name", router.identity) if identity_data else router.identity
+                except Exception:
+                    system_identity = router.identity
+                clean_identity = system_identity.replace(" ", "_").replace("/", "_").upper()
+                expected_rsc_name = f"{timestamp}_{clean_identity}"
+                rsc_remote_path = f"/{expected_rsc_name}.rsc"
+
+                # Check if RSC file already exists
+                if sftp_client.file_exists(rsc_remote_path):
+                    console.print(f"  [cyan]→[/cyan] RSC export already exists: {expected_rsc_name}.rsc")
+                    export_filenames = [expected_rsc_name]
+                else:
+                    # RSC file doesn't exist - create via SSH
+                    console.print(f"  [yellow]→[/yellow] Exporting configuration (normal + verbose) via SSH from {router.identity}...")
+                    success, export_filenames = api_client.export_configuration_verbose(ssh_client=sftp_client)
+                    if not success or not export_filenames:
+                        console.print(f"  [yellow]  ⚠ Configuration export failed[/yellow]")
+                        export_filenames = []
+                    else:
+                        console.print(f"  [green]  ✓ Exported {len(export_filenames)} RSC file(s) via SSH[/green]")
+            finally:
+                sftp_client.disconnect()
 
         api_client.disconnect()
 
@@ -428,29 +464,30 @@ def backup_router_data(
             else:
                 console.print(f"  [yellow]  ⊘ No backup file to download[/yellow]")
 
-            # Download only the newly created RSC file
-            if export_filename:
-                # Check if RSC file exists on router before downloading
-                rsc_remote_path = f"/{export_filename}.rsc"
-                if sftp_client.file_exists(rsc_remote_path):
-                    rsc_files = [export_filename]
-                    console.print(
-                        f"  [cyan]  Downloading RSC export: {export_filename}[/cyan]"
-                    )
-                    successful, failed = backup_manager.download_rsc_files(
-                        sftp_client, router, rsc_files, router_backup_dir
-                    )
+            # Download RSC files
+            if export_filenames:
+                for export_filename in export_filenames:
+                    # Check if RSC file exists on router before downloading
+                    rsc_remote_path = f"/{export_filename}.rsc"
+                    if sftp_client.file_exists(rsc_remote_path):
+                        rsc_files = [export_filename]
+                        console.print(
+                            f"  [cyan]  Downloading RSC export: {export_filename}[/cyan]"
+                        )
+                        successful, failed = backup_manager.download_rsc_files(
+                            sftp_client, router, rsc_files, router_backup_dir
+                        )
 
-                    if successful:
-                        console.print(
-                            f"  [green]  ✓ Downloaded RSC export[/green]"
-                        )
-                    if failed:
-                        console.print(
-                            f"  [yellow]  ✗ Failed to download RSC export[/yellow]"
-                        )
-                else:
-                    console.print(f"  [yellow]  ⊘ RSC export file not found on router[/yellow]")
+                        if successful:
+                            console.print(
+                                f"  [green]  ✓ Downloaded RSC export[/green]"
+                            )
+                        if failed:
+                            console.print(
+                                f"  [yellow]  ✗ Failed to download RSC export[/yellow]"
+                            )
+                    else:
+                        console.print(f"  [yellow]  ⊘ RSC export file not found on router: {export_filename}[/yellow]")
             else:
                 console.print(f"  [yellow]  ⊘ No RSC file to download[/yellow]")
 

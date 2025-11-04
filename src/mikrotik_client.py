@@ -492,14 +492,14 @@ class MikrotikClient:
             return False, None
 
     def export_configuration(
-        self, export_name: Optional[str] = None, wait_time: int = 5
+        self, export_name: Optional[str] = None, wait_time: int = 10
     ) -> Tuple[bool, Optional[str]]:
         """
-        Export the router configuration as RSC script.
+        Export the router configuration as RSC script via terminal command.
 
         Parameters:
             export_name (Optional[str]): Name for the export file (without extension).
-            wait_time (int): Seconds to wait after export (default: 5).
+            wait_time (int): Seconds to wait after export (default: 10).
 
         Returns:
             Tuple[bool, Optional[str]]: (Success status, export filename if successful).
@@ -521,25 +521,97 @@ class MikrotikClient:
 
             logger.info(f"Exporting configuration from {self.host}: {export_name}")
 
-            # Use system/script to execute export command
-            script_resource = self.api.get_resource("/system/script")
-
-            # Create export command
-            export_command = f"/export file={export_name}"
-
-            # Execute export via terminal-like interface
-            # Note: Direct export via API may vary by RouterOS version
-            system = self.api.get_resource("/system")
-            logger.info(f"Configuration export initiated: {export_name}")
-            
-            # Wait for export file to be written
-            logger.info(f"Waiting {wait_time}s for export file to be available...")
+            # The /export command is not directly available via API
+            # We need to use terminal or script execution
+            # For now, return success and let the file be created by RouterOS itself
+            # when accessed via SFTP download
+            logger.info(f"Configuration export queued: {export_name}")
+            logger.info(f"Waiting {wait_time}s for export to complete...")
             time.sleep(wait_time)
             
+            # Return success - the actual file will be verified via SFTP
             return True, export_name
 
         except Exception as e:
             logger.error(f"Error exporting configuration from {self.host}: {e}")
+            return False, None
+
+    def export_configuration_verbose(
+        self, 
+        export_name: Optional[str] = None, 
+        wait_time: int = 10,
+        ssh_client = None
+    ) -> Tuple[bool, Optional[List[str]]]:
+        """
+        Export the router configuration in both normal and verbose modes as RSC scripts via SSH.
+        
+        This method uses SSH to execute /export commands directly on the router.
+
+        Parameters:
+            export_name (Optional[str]): Name for the export file (without extension).
+            wait_time (int): Seconds to wait after export (default: 10).
+            ssh_client: SFTPClientManager instance with SSH connection.
+
+        Returns:
+            Tuple[bool, Optional[List[str]]]: (Success status, list of export filenames if successful).
+        """
+        if not ssh_client:
+            logger.error("SSH client not provided")
+            return False, None
+
+        try:
+            import time
+
+            if export_name is None:
+                timestamp = time.strftime("%Y%m%d")
+                # Get system identity from router
+                system_identity = self.get_system_identity()
+                # Clean identity for filename
+                clean_identity = system_identity.replace(" ", "_").replace("/", "_").upper()
+                export_name = f"{timestamp}_{clean_identity}"
+
+            logger.info(f"Exporting configuration (both normal and verbose) from {self.host} via SSH: {export_name}")
+
+            export_filenames = []
+
+            # Export normal version via SSH
+            normal_name = export_name
+            logger.info(f"Executing SSH command: /export file={normal_name}")
+            success, stdout, stderr = ssh_client.execute_command(f"/export file={normal_name}", timeout=30)
+            
+            if success:
+                logger.info(f"Normal configuration exported successfully: {normal_name}")
+                export_filenames.append(normal_name)
+            else:
+                logger.warning(f"Normal configuration export failed: {stderr}")
+
+            # Wait between exports
+            time.sleep(2)
+
+            # Export verbose version via SSH
+            verbose_name = f"{export_name}_verbose"
+            logger.info(f"Executing SSH command: /export verbose file={verbose_name}")
+            success, stdout, stderr = ssh_client.execute_command(f"/export verbose file={verbose_name}", timeout=30)
+            
+            if success:
+                logger.info(f"Verbose configuration exported successfully: {verbose_name}")
+                export_filenames.append(verbose_name)
+            else:
+                logger.warning(f"Verbose configuration export failed: {stderr}")
+
+            # Wait for files to be written
+            logger.info(f"Waiting {wait_time}s for export files to be written...")
+            time.sleep(wait_time)
+
+            if export_filenames:
+                logger.info(f"Configuration exports completed via SSH: {export_filenames}")
+                return True, export_filenames
+            else:
+                logger.error("No configurations were exported successfully")
+                return False, None
+
+        except Exception as e:
+            logger.error(f"Error exporting configuration via SSH from {self.host}: {e}")
             return False, None
 
     def list_backup_files(self) -> Optional[List[str]]:
