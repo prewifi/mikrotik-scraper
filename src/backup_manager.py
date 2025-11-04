@@ -179,30 +179,36 @@ class BackupManager:
 
         try:
             for filename in backup_files:
-                remote_path = f"{self.ROUTEROS_BACKUP_DIR}/{filename}"
-                local_path = str(local_router_dir / filename)
+                # Add .backup extension if not already present
+                if not filename.endswith(".backup"):
+                    remote_filename = f"{filename}.backup"
+                else:
+                    remote_filename = filename
+                    
+                remote_path = f"{self.ROUTEROS_BACKUP_DIR}/{remote_filename}"
+                local_path = str(local_router_dir / remote_filename)
 
-                logger.info(f"Downloading backup: {filename}")
+                logger.info(f"Downloading backup: {remote_filename}")
 
                 # Retry logic for file download
                 download_success = False
                 for attempt in range(retry_count):
                     if sftp_client.download_file(remote_path, local_path):
-                        successful.append(filename)
-                        logger.info(f"Successfully downloaded: {filename}")
+                        successful.append(remote_filename)
+                        logger.info(f"Successfully downloaded: {remote_filename}")
                         download_success = True
                         break
                     else:
                         if attempt < retry_count - 1:
                             logger.warning(
-                                f"Download attempt {attempt + 1}/{retry_count} failed for {filename}, "
+                                f"Download attempt {attempt + 1}/{retry_count} failed for {remote_filename}, "
                                 f"retrying in {retry_delay}s..."
                             )
                             time.sleep(retry_delay)
 
                 if not download_success:
-                    failed.append(filename)
-                    logger.warning(f"Failed to download after {retry_count} attempts: {filename}")
+                    failed.append(remote_filename)
+                    logger.warning(f"Failed to download after {retry_count} attempts: {remote_filename}")
 
         except Exception as e:
             logger.error(f"Error during backup file download: {e}")
@@ -237,30 +243,36 @@ class BackupManager:
 
         try:
             for filename in rsc_files:
-                remote_path = f"{self.ROUTEROS_RSC_DIR}/{filename}"
-                local_path = str(local_router_dir / filename)
+                # Add .rsc extension if not already present
+                if not filename.endswith(".rsc"):
+                    remote_filename = f"{filename}.rsc"
+                else:
+                    remote_filename = filename
+                    
+                remote_path = f"{self.ROUTEROS_RSC_DIR}/{remote_filename}"
+                local_path = str(local_router_dir / remote_filename)
 
-                logger.info(f"Downloading RSC file: {filename}")
+                logger.info(f"Downloading RSC file: {remote_filename}")
 
                 # Retry logic for file download
                 download_success = False
                 for attempt in range(retry_count):
                     if sftp_client.download_file(remote_path, local_path):
-                        successful.append(filename)
-                        logger.info(f"Successfully downloaded RSC: {filename}")
+                        successful.append(remote_filename)
+                        logger.info(f"Successfully downloaded RSC: {remote_filename}")
                         download_success = True
                         break
                     else:
                         if attempt < retry_count - 1:
                             logger.warning(
-                                f"Download attempt {attempt + 1}/{retry_count} failed for {filename}, "
+                                f"Download attempt {attempt + 1}/{retry_count} failed for {remote_filename}, "
                                 f"retrying in {retry_delay}s..."
                             )
                             time.sleep(retry_delay)
 
                 if not download_success:
-                    failed.append(filename)
-                    logger.warning(f"Failed to download RSC after {retry_count} attempts: {filename}")
+                    failed.append(remote_filename)
+                    logger.warning(f"Failed to download RSC after {retry_count} attempts: {remote_filename}")
 
         except Exception as e:
             logger.error(f"Error during RSC file download: {e}")

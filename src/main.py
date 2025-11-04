@@ -8,6 +8,7 @@ from Mikrotik routers via RouterOS API.
 import argparse
 import logging
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
@@ -338,11 +339,48 @@ def backup_router_data(
             return False, f"Failed to connect to {router.identity} via API"
 
         # Create new backup if configured
+        backup_filename = None
+        export_filename = None
+        
         if backup_config.get("create_backup", True):
-            console.print(f"  [yellow]→[/yellow] Creating backup on {router.identity}...")
-            success, backup_filename = api_client.create_backup()
-            if not success:
-                console.print(f"  [yellow]  ⚠ Backup creation failed[/yellow]")
+            # First, connect to SFTP to check if backup already exists
+            sftp_client = SFTPClientManager(
+                host=ip,
+                username=sftp_username or username,
+                password=sftp_password or password,
+                port=sftp_port,
+                timeout=sftp_timeout,
+            )
+
+            if not sftp_client.connect():
+                return False, f"Failed to connect to {router.identity} via SFTP for pre-check"
+
+            try:
+                # Generate the backup name that would be created
+                timestamp = time.strftime("%Y%m%d")
+                try:
+                    identity_resource = api_client.api.get_resource("/system/identity")
+                    identity_data = identity_resource.get()
+                    system_identity = identity_data.get("name", router.identity) if identity_data else router.identity
+                except Exception:
+                    system_identity = router.identity
+                clean_identity = system_identity.replace(" ", "_").replace("/", "_").upper()
+                expected_backup_name = f"{timestamp}_{clean_identity}"
+                backup_remote_path = f"/{expected_backup_name}.backup"
+
+                # Check if backup already exists
+                if sftp_client.file_exists(backup_remote_path):
+                    console.print(f"  [cyan]→[/cyan] Backup already exists: {expected_backup_name}.backup")
+                    backup_filename = expected_backup_name
+                else:
+                    # Backup doesn't exist, create it
+                    console.print(f"  [yellow]→[/yellow] Creating backup on {router.identity}...")
+                    success, backup_filename = api_client.create_backup()
+                    if not success:
+                        console.print(f"  [yellow]  ⚠ Backup creation failed[/yellow]")
+                        backup_filename = None
+            finally:
+                sftp_client.disconnect()
 
         # Create RSC export if configured
         if backup_config.get("export_config", True):
@@ -350,6 +388,7 @@ def backup_router_data(
             success, export_filename = api_client.export_configuration()
             if not success:
                 console.print(f"  [yellow]  ⚠ Configuration export failed[/yellow]")
+                export_filename = None
 
         api_client.disconnect()
 
@@ -368,14 +407,11 @@ def backup_router_data(
             return False, f"Failed to connect to {router.identity} via SFTP"
 
         try:
-            # Get available backup files
-            backup_files = backup_manager.get_backup_files(sftp_client) or []
-            rsc_files = backup_manager.get_rsc_files(sftp_client) or []
-
-            # Download backup files
-            if backup_files:
+            # Download only the newly created backup file
+            if backup_filename:
+                backup_files = [backup_filename]
                 console.print(
-                    f"  [cyan]  Found {len(backup_files)} backup file(s)[/cyan]"
+                    f"  [cyan]  Downloading backup: {backup_filename}[/cyan]"
                 )
                 successful, failed = backup_manager.download_backup_files(
                     sftp_client, router, backup_files, router_backup_dir
@@ -383,30 +419,40 @@ def backup_router_data(
 
                 if successful:
                     console.print(
-                        f"  [green]  ✓ Downloaded {len(successful)} backup(s)[/green]"
+                        f"  [green]  ✓ Downloaded backup[/green]"
                     )
                 if failed:
                     console.print(
-                        f"  [yellow]  ✗ Failed to download {len(failed)} backup(s)[/yellow]"
+                        f"  [yellow]  ✗ Failed to download backup[/yellow]"
+                    )
+            else:
+                console.print(f"  [yellow]  ⊘ No backup file to download[/yellow]")
+
+            # Download only the newly created RSC file
+            if export_filename:
+                # Check if RSC file exists on router before downloading
+                rsc_remote_path = f"/{export_filename}.rsc"
+                if sftp_client.file_exists(rsc_remote_path):
+                    rsc_files = [export_filename]
+                    console.print(
+                        f"  [cyan]  Downloading RSC export: {export_filename}[/cyan]"
+                    )
+                    successful, failed = backup_manager.download_rsc_files(
+                        sftp_client, router, rsc_files, router_backup_dir
                     )
 
-            # Download RSC files
-            if rsc_files:
-                console.print(
-                    f"  [cyan]  Found {len(rsc_files)} RSC file(s)[/cyan]"
-                )
-                successful, failed = backup_manager.download_rsc_files(
-                    sftp_client, router, rsc_files, router_backup_dir
-                )
-
-                if successful:
-                    console.print(
-                        f"  [green]  ✓ Downloaded {len(successful)} RSC file(s)[/green]"
-                    )
-                if failed:
-                    console.print(
-                        f"  [yellow]  ✗ Failed to download {len(failed)} RSC file(s)[/yellow]"
-                    )
+                    if successful:
+                        console.print(
+                            f"  [green]  ✓ Downloaded RSC export[/green]"
+                        )
+                    if failed:
+                        console.print(
+                            f"  [yellow]  ✗ Failed to download RSC export[/yellow]"
+                        )
+                else:
+                    console.print(f"  [yellow]  ⊘ RSC export file not found on router[/yellow]")
+            else:
+                console.print(f"  [yellow]  ⊘ No RSC file to download[/yellow]")
 
             # Clean up old backups if configured
             if backup_config.get("cleanup_old", True):
