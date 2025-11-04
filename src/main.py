@@ -398,7 +398,7 @@ def backup_router_data(
                 return False, f"Failed to connect to {router.identity} via SSH/SFTP for RSC export"
 
             try:
-                # Generate the RSC name that would be created
+                # Generate the RSC names that would be created
                 timestamp = time.strftime("%Y%m%d")
                 try:
                     identity_resource = api_client.api.get_resource("/system/identity")
@@ -408,14 +408,40 @@ def backup_router_data(
                     system_identity = router.identity
                 clean_identity = system_identity.replace(" ", "_").replace("/", "_").upper()
                 expected_rsc_name = f"{timestamp}_{clean_identity}"
+                expected_verbose_name = f"{timestamp}_{clean_identity}_verbose"
+                
                 rsc_remote_path = f"/{expected_rsc_name}.rsc"
+                verbose_remote_path = f"/{expected_verbose_name}.rsc"
 
-                # Check if RSC file already exists
-                if sftp_client.file_exists(rsc_remote_path):
-                    console.print(f"  [cyan]→[/cyan] RSC export already exists: {expected_rsc_name}.rsc")
-                    export_filenames = [expected_rsc_name]
+                # Check which RSC files already exist
+                normal_exists = sftp_client.file_exists(rsc_remote_path)
+                verbose_exists = sftp_client.file_exists(verbose_remote_path)
+
+                if normal_exists and verbose_exists:
+                    console.print(f"  [cyan]→[/cyan] RSC exports already exist (normal + verbose)")
+                    export_filenames = [expected_rsc_name, expected_verbose_name]
+                elif normal_exists and not verbose_exists:
+                    console.print(f"  [cyan]→[/cyan] Normal RSC export exists, creating verbose version via SSH...")
+
+                    success, stdout, stderr = sftp_client.execute_command(f"/export verbose file={expected_verbose_name}", timeout=30)
+                    if success:
+                        console.print(f"  [green]  ✓ Exported verbose RSC via SSH[/green]")
+                        export_filenames = [expected_rsc_name, expected_verbose_name]
+                    else:
+                        console.print(f"  [yellow]  ⚠ Verbose export failed: {stderr}[/yellow]")
+                        export_filenames = [expected_rsc_name]
+                    time.sleep(10)  # Wait for file to be written
+                elif verbose_exists and not normal_exists:
+                    console.print(f"  [cyan]→[/cyan] Verbose RSC export exists, creating normal version via SSH...")
+                    success, stdout, stderr = sftp_client.execute_command(f"/export file={expected_rsc_name}", timeout=30)
+                    if success:
+                        console.print(f"  [green]  ✓ Exported normal RSC via SSH[/green]")
+                        export_filenames = [expected_rsc_name, expected_verbose_name]
+                    else:
+                        console.print(f"  [yellow]  ⚠ Normal export failed: {stderr}[/yellow]")
+                        export_filenames = [expected_verbose_name]
+                    time.sleep(10)  # Wait for file to be written
                 else:
-                    # RSC file doesn't exist - create via SSH
                     console.print(f"  [yellow]→[/yellow] Exporting configuration (normal + verbose) via SSH from {router.identity}...")
                     success, export_filenames = api_client.export_configuration_verbose(ssh_client=sftp_client)
                     if not success or not export_filenames:
