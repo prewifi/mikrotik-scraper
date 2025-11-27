@@ -109,6 +109,21 @@ class SystemResource(BaseModel):
     board_name: Optional[str] = Field(None, description="Board name")
 
 
+class Scheduler(BaseModel):
+    """Represents a system scheduler on a Mikrotik router."""
+
+    name: str = Field(..., description="Scheduler name")
+    start_date: Optional[str] = Field(None, description="Start date")
+    start_time: Optional[str] = Field(None, description="Start time")
+    interval: Optional[str] = Field(None, description="Execution interval")
+    on_event: Optional[str] = Field(None, description="Script/commands to execute")
+    policy: Optional[str] = Field(None, description="Policy settings")
+    disabled: bool = Field(default=False, description="Whether the scheduler is disabled")
+    run_count: Optional[int] = Field(None, description="Number of times executed")
+    next_run: Optional[str] = Field(None, description="Next scheduled run time")
+
+
+
 class Router(BaseModel):
     """Represents a Mikrotik router with all its collected information."""
 
@@ -124,6 +139,8 @@ class Router(BaseModel):
         default_factory=list, description="Active PPPoE connections"
     )
     pppoe_secrets: List[PPPoESecret] = Field(default_factory=list, description="PPPoE secrets")
+    schedulers: List[Scheduler] = Field(default_factory=list, description="System schedulers")
+
 
     # Metadata
     last_updated: datetime = Field(
@@ -156,6 +173,34 @@ class Anomaly(BaseModel):
     description: str = Field(..., description="Detailed description")
     affected_object: Optional[str] = Field(None, description="Affected object (interface, etc.)")
     suggestion: Optional[str] = Field(None, description="Suggested remediation")
+
+
+class IPService(BaseModel):
+    """Represents an IP service configuration on a Mikrotik router."""
+
+    name: str = Field(..., description="Service name (api, ssh, www, etc.)")
+    port: int = Field(..., description="Service port number")
+    disabled: bool = Field(default=False, description="Whether the service is disabled")
+    address: Optional[str] = Field(None, description="Allowed IP addresses/networks (comma-separated)")
+    certificate: Optional[str] = Field(None, description="Certificate name (for HTTPS services)")
+
+
+class IPServiceConfig(BaseModel):
+    """Represents IP service configuration to apply to a router."""
+
+    service_name: str = Field(..., description="Service name to configure")
+    addresses: str = Field(..., description="Comma-separated list of allowed IP addresses/networks")
+
+
+class IPServiceRollbackInfo(BaseModel):
+    """Stores rollback information for IP service configuration."""
+
+    router_ip: str = Field(..., description="Router IP address")
+    scheduler_name: str = Field(..., description="Name of the rollback scheduler created")
+    original_config: Dict[str, str] = Field(..., description="Original IP service configuration")
+    applied_at: datetime = Field(default_factory=datetime.now, description="When configuration was applied")
+    rollback_timeout: int = Field(default=300, description="Rollback timeout in seconds")
+
 
 
 class NetworkInventory(BaseModel):

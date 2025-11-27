@@ -80,7 +80,7 @@ dist/
 inventory/
 *.json
 *.yaml.bak
-
+results/
 # Temporary
 tmp/
 temp/

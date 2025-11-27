@@ -215,6 +215,9 @@ class NetworkAnalyzer:
             # Check for outdated RouterOS version
             anomalies.extend(self._check_routeros_version(router))
 
+            # Check for active rollback schedulers
+            anomalies.extend(self._check_active_rollback_schedulers(router))
+
         logger.info(f"Detected {len(anomalies)} anomalies across all routers")
         return anomalies
 
@@ -349,6 +352,35 @@ class NetworkAnalyzer:
             except (ValueError, IndexError):
                 pass  # Can't parse version, skip
 
+        return anomalies
+
+    def _check_active_rollback_schedulers(self, router: Router) -> List[Anomaly]:
+        """Check for active IP service rollback schedulers."""
+        anomalies = []
+        
+        # Check for schedulers that look like rollback schedulers
+        for scheduler in router.schedulers:
+            # Check if it's a rollback scheduler (by name pattern and content)
+            is_rollback_scheduler = (
+                "rollback" in scheduler.name.lower() or
+                (scheduler.on_event and "/ip service set" in scheduler.on_event)
+            )
+            
+            if is_rollback_scheduler and not scheduler.disabled:
+                anomaly = Anomaly(
+                    router=router.identity,
+                    anomaly_type="active_rollback_scheduler",
+                    severity="warning",
+                    description=f"Active rollback scheduler found: {scheduler.name}",
+                    affected_object=scheduler.name,
+                    suggestion=(
+                        "This scheduler was likely created during IP service configuration. "
+                        "If configuration was successful, this scheduler should have been removed. "
+                        "Verify IP service configuration and remove scheduler manually if needed."
+                    ),
+                )
+                anomalies.append(anomaly)
+        
         return anomalies
 
     def analyze(self) -> NetworkInventory:

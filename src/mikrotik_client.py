@@ -13,10 +13,13 @@ import routeros_api
 from models import (
     Interface,
     IPAddress,
+    IPService,
+    IPServiceConfig,
     Neighbor,
     PPPoEActive,
     PPPoESecret,
     Router,
+    Scheduler,
     SystemResource,
 )
 
@@ -347,6 +350,36 @@ class MikrotikClient:
 
         return pppoe_secrets
 
+    def get_schedulers(self) -> List[Scheduler]:
+        """
+        Get system schedulers.
+
+        Returns:
+            List[Scheduler]: List of scheduler objects.
+        """
+        schedulers = []
+        try:
+            result = self._execute_command("/system/scheduler")
+            for item in result:
+                scheduler = Scheduler(
+                    name=item.get("name", ""),
+                    start_date=item.get("start-date", None),
+                    start_time=item.get("start-time", None),
+                    interval=item.get("interval", None),
+                    on_event=item.get("on-event", None),
+                    policy=item.get("policy", None),
+                    disabled=item.get("disabled", "false") == "true",
+                    run_count=int(item.get("run-count", 0)) if item.get("run-count") else None,
+                    next_run=item.get("next-run", None),
+                )
+                schedulers.append(scheduler)
+            logger.info(f"Retrieved {len(schedulers)} schedulers from {self.host}")
+        except Exception as e:
+            logger.error(f"Error getting schedulers from {self.host}: {e}")
+
+        return schedulers
+
+
     def collect_all_data(
         self, collection_options: Optional[Dict] = None
     ) -> Tuple[Optional[Router], Optional[str]]:
@@ -374,7 +407,9 @@ class MikrotikClient:
                 "pppoe_active": True,
                 "pppoe_secrets": True,
                 "wireless": True,
+                "schedulers": False,  # Optional: disabled by default
             }
+
 
         try:
             identity = self.get_system_identity()
@@ -411,6 +446,11 @@ class MikrotikClient:
             if collection_options.get("pppoe_secrets", True):
                 pppoe_secrets = self.get_pppoe_secrets()
 
+            # Collect schedulers if enabled
+            schedulers = []
+            if collection_options.get("schedulers", True):
+                schedulers = self.get_schedulers()
+
             router = Router(
                 ip_address=self.host,
                 identity=identity,
@@ -420,6 +460,7 @@ class MikrotikClient:
                 neighbors=neighbors,
                 pppoe_active=pppoe_active,
                 pppoe_secrets=pppoe_secrets,
+                schedulers=schedulers,
                 connection_successful=True,
             )
 
@@ -427,7 +468,8 @@ class MikrotikClient:
                 f"Successfully collected data from {identity}: "
                 f"{len(router.interfaces)} interfaces, "
                 f"{len(router.neighbors)} neighbors, "
-                f"{len(router.pppoe_active)} active PPPoE"
+                f"{len(router.pppoe_active)} active PPPoE, "
+                f"{len(router.schedulers)} schedulers"
             )
 
             return router, None
@@ -661,3 +703,206 @@ class MikrotikClient:
         except Exception as e:
             logger.error(f"Error listing RSC files on {self.host}: {e}")
             return None
+
+    def get_ip_services(self) -> List[IPService]:
+        """
+        Get all IP services configuration.
+
+        Returns:
+            List[IPService]: List of IP service objects.
+        """
+        services = []
+        try:
+            result = self._execute_command("/ip/service")
+            for item in result:
+                service = IPService(
+                    name=item.get("name", ""),
+                    port=int(item.get("port", 0)),
+                    disabled=item.get("disabled", "false") == "true",
+                    address=item.get("address", None),
+                    certificate=item.get("certificate", None),
+                )
+                services.append(service)
+            logger.info(f"Retrieved {len(services)} IP services from {self.host}")
+        except Exception as e:
+            logger.error(f"Error getting IP services from {self.host}: {e}")
+
+        return services
+
+    def set_ip_service_addresses(
+        self,
+        service_configs: List[IPServiceConfig],
+        create_rollback: bool = True,
+        rollback_timeout: int = 300,
+    ) -> Tuple[bool, Optional[str], Optional[str]]:
+        """
+        Set IP service addresses with automatic rollback mechanism.
+
+        This method applies IP service configuration and creates a rollback scheduler
+        that will automatically revert changes if verification fails.
+
+        Parameters:
+            service_configs (List[IPServiceConfig]): List of service configurations to apply.
+            create_rollback (bool): Create rollback scheduler (default: True).
+            rollback_timeout (int): Rollback timeout in seconds (default: 300).
+
+        Returns:
+            Tuple[bool, Optional[str], Optional[str]]: 
+                (Success status, scheduler name if created, error message if any).
+        """
+        if not self.api:
+            logger.error("Not connected to router")
+            return False, None, "Not connected to router"
+
+        try:
+            import time
+
+            # Step 1: Get current configuration for rollback
+            logger.info(f"Reading current IP services configuration from {self.host}")
+            current_services = self.get_ip_services()
+            
+            # Create a map of current addresses for rollback
+            current_config = {
+                svc.name: svc.address if svc.address else ""
+                for svc in current_services
+            }
+
+            # Step 2: Create rollback scheduler if requested
+            scheduler_name = None
+            if create_rollback:
+                scheduler_name = f"ip-service-rollback-{int(time.time())}"
+                logger.info(f"Creating rollback scheduler '{scheduler_name}' on {self.host}")
+
+                # Build rollback commands
+                rollback_commands = []
+                for config in service_configs:
+                    service_name = config.service_name
+                    original_address = current_config.get(service_name, "")
+                    # Escape quotes in addresses
+                    escaped_address = original_address.replace('"', '\\"')
+                    rollback_commands.append(
+                        f'/ip service set [find name="{service_name}"] address="{escaped_address}"'
+                    )
+
+                # Combine commands into single script
+                rollback_script = "; ".join(rollback_commands)
+                
+                # Add scheduler cleanup at the end
+                rollback_script += f'; /system scheduler remove [find name="{scheduler_name}"]'
+
+                try:
+                    scheduler_resource = self.api.get_resource("/system/scheduler")
+                    
+                    # Calculate start time (now + timeout)
+                    from datetime import datetime, timedelta
+                    start_time = datetime.now() + timedelta(seconds=rollback_timeout)
+                    start_time_str = start_time.strftime("%H:%M:%S")
+
+                    scheduler_resource.add(
+                        name=scheduler_name,
+                        start_time=start_time_str,
+                        interval=f"{rollback_timeout}s",
+                        on_event=rollback_script,
+                        policy="read,write,policy",
+                    )
+                    logger.info(
+                        f"Rollback scheduler created: will execute in {rollback_timeout}s if not cancelled"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to create rollback scheduler: {e}")
+                    return False, None, f"Failed to create rollback scheduler: {e}"
+
+            # Step 3: Apply new configuration
+            logger.info(f"Applying IP service configuration to {self.host}")
+            ip_service_resource = self.api.get_resource("/ip/service")
+
+            for config in service_configs:
+                try:
+                    service_name = config.service_name
+                    addresses = config.addresses
+
+                    logger.info(
+                        f"Setting {service_name} service addresses to: {addresses}"
+                    )
+
+                    # Find the service entry
+                    services = ip_service_resource.get(name=service_name)
+                    if not services:
+                        logger.warning(f"Service '{service_name}' not found on {self.host}")
+                        continue
+
+                    service_id = services[0].get("id") or services[0].get(".id")
+                    
+                    # Update the service
+                    ip_service_resource.set(id=service_id, address=addresses)
+                    
+                    logger.info(f"Successfully configured {service_name} service")
+
+                except Exception as e:
+                    logger.error(f"Error configuring {service_name} service: {e}")
+                    # Don't fail completely, continue with other services
+                    continue
+
+            # Step 4: Verify connection is still active
+            logger.info(f"Verifying connection to {self.host} after configuration")
+            time.sleep(2)  # Wait a moment for changes to apply
+
+            try:
+                # Try to execute a simple command to verify connection
+                test_result = self._execute_command("/system/identity")
+                if not test_result:
+                    raise Exception("Connection verification failed")
+                logger.info(f"Connection verification successful")
+            except Exception as e:
+                logger.error(
+                    f"Connection verification failed: {e}. "
+                    f"Rollback scheduler will restore configuration in {rollback_timeout}s"
+                )
+                return (
+                    False,
+                    scheduler_name,
+                    f"Configuration applied but connection lost. Rollback will execute automatically.",
+                )
+
+            # Step 5: Remove rollback scheduler (configuration successful)
+            if scheduler_name:
+                try:
+                    logger.info(f"Removing rollback scheduler (configuration successful)")
+                    scheduler_resource = self.api.get_resource("/system/scheduler")
+                    schedulers = scheduler_resource.get(name=scheduler_name)
+                    if schedulers:
+                        scheduler_id = schedulers[0].get("id") or schedulers[0].get(".id")
+                        scheduler_resource.remove(id=scheduler_id)
+                        logger.info(f"Rollback scheduler removed successfully")
+                except Exception as e:
+                    logger.warning(
+                        f"Could not remove rollback scheduler: {e}. "
+                        f"It will auto-remove after execution."
+                    )
+
+            logger.info(
+                f"IP service configuration applied successfully to {self.host}"
+            )
+            return True, None, None
+
+        except Exception as e:
+            error_msg = f"Error applying IP service configuration to {self.host}: {e}"
+            logger.error(error_msg)
+            return False, scheduler_name, error_msg
+
+    def get_ip_service_by_name(self, service_name: str) -> Optional[IPService]:
+        """
+        Get a specific IP service configuration by name.
+
+        Parameters:
+            service_name (str): Name of the service (e.g., 'api', 'ssh', 'www').
+
+        Returns:
+            Optional[IPService]: Service configuration or None if not found.
+        """
+        services = self.get_ip_services()
+        for service in services:
+            if service.name == service_name:
+                return service
+        return None
+

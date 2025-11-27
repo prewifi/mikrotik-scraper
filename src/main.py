@@ -23,7 +23,7 @@ from analyzer import NetworkAnalyzer
 from backup_manager import BackupManager
 from inventory import InventoryManager
 from mikrotik_client import MikrotikClient
-from models import Router
+from models import Router, IPServiceConfig
 from sftp_client import SFTPClientManager
 
 console = Console()
@@ -639,6 +639,132 @@ def backup_all_routers(
         console.print()
 
 
+def configure_ip_services_all_routers(
+    config: Dict, router_configs: List[Dict]
+) -> Tuple[int, int]:
+    """
+    Configure IP services on all routers.
+
+    Parameters:
+        config (Dict): Main configuration dictionary.
+        router_configs (List[Dict]): Router-specific configurations.
+
+    Returns:
+        Tuple[int, int]: (successful_count, failed_count).
+    """
+    ip_services_config = config.get("ip_services", {})
+    
+    if not ip_services_config.get("enabled", False):
+        console.print("[yellow]IP services configuration is disabled[/yellow]")
+        return 0, 0
+
+    services_to_configure = ip_services_config.get("services", {})
+    if not services_to_configure:
+        console.print("[yellow]No IP services configured in config file[/yellow]")
+        return 0, 0
+
+    rollback_timeout = ip_services_config.get("rollback_timeout", 300)
+    create_rollback = ip_services_config.get("rollback_on_failure", True)
+    
+    default_creds = config.get("default_credentials", {})
+    
+    console.print(
+        f"\n[bold cyan]Configuring IP services on {len(router_configs)} router(s)...[/bold cyan]\n"
+    )
+    console.print(
+        f"[cyan]Services to configure: {', '.join(services_to_configure.keys())}[/cyan]\n"
+    )
+    
+    if create_rollback:
+        console.print(
+            f"[yellow]⚠ Rollback protection enabled (timeout: {rollback_timeout}s)[/yellow]\n"
+        )
+
+    successful = 0
+    failed = 0
+
+    for router_config in router_configs:
+        ip = router_config.get("ip")
+        username = router_config.get("username", default_creds.get("username"))
+        password = router_config.get("password", default_creds.get("password"))
+        port = router_config.get("port", default_creds.get("port", 8728))
+        timeout = router_config.get("timeout", default_creds.get("timeout", 10))
+
+        console.print(f"[bold cyan]Configuring: {ip}[/bold cyan]")
+
+        # Connect to router
+        client = MikrotikClient(ip, username, password, port, timeout)
+        
+        if not client.connect():
+            console.print(f"  [red]✗ Failed to connect[/red]\n")
+            failed += 1
+            continue
+
+        try:
+            # Get router identity for better logging
+            identity = client.get_system_identity()
+            console.print(f"  Router: {identity}")
+
+            # Build service configuration list
+            service_configs = []
+            for service_name, service_config in services_to_configure.items():
+                addresses = service_config.get("addresses", "")
+                if addresses:
+                    service_configs.append(
+                        IPServiceConfig(
+                            service_name=service_name,
+                            addresses=addresses
+                        )
+                    )
+
+            if not service_configs:
+                console.print(f"  [yellow]⚠ No valid service configurations[/yellow]\n")
+                client.disconnect()
+                continue
+
+            # Apply configuration with rollback
+            success, scheduler_name, error = client.set_ip_service_addresses(
+                service_configs=service_configs,
+                create_rollback=create_rollback,
+                rollback_timeout=rollback_timeout,
+            )
+
+            if success:
+                console.print(f"  [green]✓ Configuration applied successfully[/green]")
+                successful += 1
+            else:
+                console.print(f"  [red]✗ Configuration failed: {error}[/red]")
+                if scheduler_name:
+                    console.print(
+                        f"  [yellow]  → Rollback scheduler active: {scheduler_name}[/yellow]"
+                    )
+                failed += 1
+
+        except Exception as e:
+            console.print(f"  [red]✗ Error: {e}[/red]")
+            failed += 1
+        finally:
+            client.disconnect()
+            console.print()
+
+    # Summary
+    console.print(
+        "\n[bold cyan]═══════════════════════════════════════════════════════════════════════[/bold cyan]"
+    )
+    console.print(
+        "[bold cyan]              IP SERVICES CONFIGURATION SUMMARY                       [/bold cyan]"
+    )
+    console.print(
+        "[bold cyan]═══════════════════════════════════════════════════════════════════════[/bold cyan]\n"
+    )
+    
+    console.print(f"[green]Successful: {successful}[/green]")
+    console.print(f"[red]Failed: {failed}[/red]")
+    console.print(f"[cyan]Total: {successful + failed}[/cyan]\n")
+
+    return successful, failed
+
+
 def main():
     """Main entry point for the application."""
     parser = argparse.ArgumentParser(
@@ -662,6 +788,17 @@ def main():
         action="store_true",
         help="Only perform backup operations (skip inventory)",
     )
+    parser.add_argument(
+        "--configure-services",
+        action="store_true",
+        help="Configure IP services on all routers (can be combined with other options)",
+    )
+    parser.add_argument(
+        "--configure-services-only",
+        action="store_true",
+        help="Only configure IP services (skip inventory and backup)",
+    )
+
 
     args = parser.parse_args()
 
@@ -684,7 +821,16 @@ def main():
             "[bold blue]╚═══════════════════════════════════════════════════════════════════╝[/bold blue]\n"
         )
 
-        if args.backup_only:
+        router_configs = config.get("routers", [])
+
+        if args.configure_services_only:
+            # Configure IP services only mode
+            console.print(
+                "[bold cyan]IP Services configuration only mode...[/bold cyan]"
+            )
+            configure_ip_services_all_routers(config, router_configs)
+
+        elif args.backup_only:
             # Backup only mode - collect data first, then backup
             console.print("[bold cyan]Backup-only mode: collecting router data first...[/bold cyan]")
             routers = collect_all_routers(config)
@@ -753,10 +899,23 @@ def main():
 
             console.print("\n[bold green]✓ Inventory collection completed successfully![/bold green]\n")
 
+            # Configure IP services if enabled or requested
+            ip_services_config = config.get("ip_services", {})
+            should_configure = (
+                args.configure_services  # Explicitly requested via CLI
+                or (  # Or enabled in config and apply_on_connect is true
+                    ip_services_config.get("enabled", False)
+                    and ip_services_config.get("apply_on_connect", False)
+                )
+            )
+
+            if should_configure:
+                configure_ip_services_all_routers(config, router_configs)
+
             # Perform backup if requested
             if args.backup:
-                router_configs = config.get("routers", [])
                 backup_all_routers(routers, config, router_configs)
+
 
     except KeyboardInterrupt:
         console.print("\n\n[yellow]Operation cancelled by user.[/yellow]")

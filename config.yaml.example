@@ -63,6 +63,15 @@ collection:
   max_workers: 5   # Maximum parallel workers (if parallel is true)
   retry_failed: false  # Retry failed connections
   retry_attempts: 2    # Number of retry attempts
+  collect:
+    system_info: true  # System resource information
+    interfaces: true   # Network interfaces
+    ip_addresses: true # IP address assignments
+    neighbors: true    # LLDP/neighbor discovery
+    pppoe_active: true # Active PPPoE sessions
+    pppoe_secrets: true # PPPoE user credentials
+    wireless: true     # Wireless interface data (if available)
+    schedulers: false  # System schedulers (optional, default: false)
 
 # Backup and SFTP settings
 backup:
@@ -84,8 +93,29 @@ sftp:
   # username: "api-user"
   # password: "sftp-password"
 
-collection:
-  parallel: false  # Collect data in parallel (faster but more resource intensive)
-  max_workers: 5   # Maximum parallel workers (if parallel is true)
-  retry_failed: false  # Retry failed connections
-  retry_attempts: 2    # Number of retry attempts
+
+
+# IP Service configuration
+ip_services:
+  enabled: false  # Enable IP service configuration
+  apply_on_connect: false  # Apply configuration automatically during inventory collection
+  backup_before_apply: true  # Create backup before applying IP service changes
+  rollback_on_failure: true  # Automatically rollback if configuration fails
+  rollback_timeout: 300  # Timeout in seconds before automatic rollback (default: 5 minutes)
+  
+  # Service configurations - specify which services to configure and their allowed addresses
+  services:
+    # Example: API service
+    # api:
+    #   addresses: "10.13.252.0/27,172.16.0.0/12,192.168.0.0/16,81.31.148.214/32,194.60.213.0/24"
+    
+    # Example: SSH service
+    # ssh:
+    #   addresses: "10.13.252.0/27,172.16.0.0/12,192.168.0.0/16"
+    
+    # Example: Web interface
+    # www:
+    #   addresses: "192.168.0.0/16"
+    
+    # Available services: api, ssh, www, www-ssl, ftp, telnet, winbox
+
