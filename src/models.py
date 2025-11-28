@@ -202,6 +202,26 @@ class IPServiceRollbackInfo(BaseModel):
     rollback_timeout: int = Field(default=300, description="Rollback timeout in seconds")
 
 
+class UserGroupConfig(BaseModel):
+    """Represents a RouterOS user group configuration."""
+
+    name: str = Field(..., description="Group name")
+    policy: str = Field(..., description="Comma-separated list of policies")
+    skin: Optional[str] = Field(None, description="Skin name")
+    comment: Optional[str] = Field(None, description="Comment")
+
+
+class UserConfig(BaseModel):
+    """Represents a RouterOS user configuration."""
+
+    name: str = Field(..., description="Username")
+    group: str = Field(..., description="User group")
+    password: Optional[str] = Field(None, description="User password")
+    address: Optional[str] = Field(None, description="Allowed IP address (ACL)")
+    comment: Optional[str] = Field(None, description="Comment")
+
+
+
 
 class NetworkInventory(BaseModel):
     """Complete network inventory with routers, links, and anomalies."""

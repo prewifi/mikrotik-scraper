@@ -23,10 +23,12 @@ from analyzer import NetworkAnalyzer
 from backup_manager import BackupManager
 from inventory import InventoryManager
 from mikrotik_client import MikrotikClient
-from models import Router, IPServiceConfig
+from models import Router, IPServiceConfig, UserConfig, UserGroupConfig
 from sftp_client import SFTPClientManager
 
 console = Console()
+logger = logging.getLogger(__name__)
+
 
 
 def setup_logging(config: Dict) -> None:
@@ -765,6 +767,87 @@ def configure_ip_services_all_routers(
     return successful, failed
 
 
+def configure_users_and_groups(config: Dict) -> Tuple[int, int]:
+    """
+    Configure users and groups on all routers.
+
+    Parameters:
+        config (Dict): Configuration dictionary.
+
+    Returns:
+        Tuple[int, int]: Number of successful and failed configurations.
+    """
+    user_mgmt_config = config.get("user_management", {})
+    if not user_mgmt_config.get("enabled", False):
+        logger.info("User management configuration disabled")
+        return 0, 0
+
+    console.print("\n[bold cyan]Starting User and Group Configuration...[/bold cyan]")
+
+    successful = 0
+    failed = 0
+
+    routers_config = config.get("routers", [])
+    total_routers = len(routers_config)
+
+    # Prepare configs
+    groups_config = []
+    for g in user_mgmt_config.get("groups", []):
+        groups_config.append(UserGroupConfig(**g))
+
+    users_config = []
+    for u in user_mgmt_config.get("users", []):
+        users_config.append(UserConfig(**u))
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TimeRemainingColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task(
+            "[cyan]Configuring users and groups...", total=total_routers
+        )
+
+        for router_conf in routers_config:
+            host = router_conf.get("ip") or router_conf.get("host")
+            username = router_conf.get("username", config.get("default_credentials", {}).get("username"))
+            password = router_conf.get("password", config.get("default_credentials", {}).get("password"))
+            port = router_conf.get("port", 8728)
+
+            progress.update(task, description=f"[cyan]Configuring {host}...")
+
+            client = MikrotikClient(host, username, password, port)
+
+            try:
+                if client.connect():
+                    logger.info(f"Connected to {host} for user management")
+
+                    # Configure Groups
+                    for group_conf in groups_config:
+                        client.ensure_user_group(group_conf)
+
+                    # Configure Users
+                    for user_conf in users_config:
+                        client.ensure_user(user_conf)
+
+                    successful += 1
+                    client.disconnect()
+                else:
+                    logger.error(f"Failed to connect to {host}")
+                    failed += 1
+            except Exception as e:
+                logger.error(f"Error configuring users on {host}: {e}")
+                failed += 1
+
+            progress.advance(task)
+
+    console.print(f"\n[green]Successful: {successful}[/green]")
+    console.print(f"[red]Failed: {failed}[/red]")
+
+    return successful, failed
+
 def main():
     """Main entry point for the application."""
     parser = argparse.ArgumentParser(
@@ -798,6 +881,17 @@ def main():
         action="store_true",
         help="Only configure IP services (skip inventory and backup)",
     )
+    parser.add_argument(
+        "--configure-users",
+        action="store_true",
+        help="Configure users and groups on all routers",
+    )
+    parser.add_argument(
+        "--configure-users-only",
+        action="store_true",
+        help="Only configure users and groups (skip inventory and backup)",
+    )
+
 
 
     args = parser.parse_args()
@@ -807,7 +901,7 @@ def main():
 
     # Setup logging
     setup_logging(config)
-    logger = logging.getLogger(__name__)
+
 
     try:
         # Display banner
@@ -829,6 +923,13 @@ def main():
                 "[bold cyan]IP Services configuration only mode...[/bold cyan]"
             )
             configure_ip_services_all_routers(config, router_configs)
+
+        elif args.configure_users_only:
+            # Configure users only mode
+            console.print(
+                "[bold cyan]User/Group configuration only mode...[/bold cyan]"
+            )
+            configure_users_and_groups(config)
 
         elif args.backup_only:
             # Backup only mode - collect data first, then backup
@@ -911,6 +1012,16 @@ def main():
 
             if should_configure:
                 configure_ip_services_all_routers(config, router_configs)
+
+            # Configure Users if requested or enabled
+            user_mgmt_config = config.get("user_management", {})
+            should_configure_users = (
+                args.configure_users
+                or user_mgmt_config.get("enabled", False)
+            )
+
+            if should_configure_users:
+                configure_users_and_groups(config)
 
             # Perform backup if requested
             if args.backup:

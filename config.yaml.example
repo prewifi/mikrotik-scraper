@@ -119,3 +119,17 @@ ip_services:
     
     # Available services: api, ssh, www, www-ssl, ftp, telnet, winbox
 
+# User and Group Management
+user_management:
+  enabled: false # Enable user/group management
+  groups:
+    - name: "automation_group"
+      policy: "ssh,ftp,read,write,policy,test,sensitive,api"
+      skin: "default"
+      comment: "Group for automation scripts"
+  users:
+    - name: "automation_user"
+      group: "automation_group"
+      password: "secure_password" # Optional: update password if specified
+      address: "10.0.0.0/8,192.168.0.0/16" # Allowed addresses (ACL)
+      comment: "Automation user"

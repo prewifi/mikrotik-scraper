@@ -21,6 +21,8 @@ from models import (
     Router,
     Scheduler,
     SystemResource,
+    UserConfig,
+    UserGroupConfig,
 )
 
 logger = logging.getLogger(__name__)
@@ -867,18 +869,10 @@ class MikrotikClient:
             # Step 5: Remove rollback scheduler (configuration successful)
             if scheduler_name:
                 try:
-                    logger.info(f"Removing rollback scheduler (configuration successful)")
-                    scheduler_resource = self.api.get_resource("/system/scheduler")
-                    schedulers = scheduler_resource.get(name=scheduler_name)
-                    if schedulers:
-                        scheduler_id = schedulers[0].get("id") or schedulers[0].get(".id")
-                        scheduler_resource.remove(id=scheduler_id)
-                        logger.info(f"Rollback scheduler removed successfully")
+                    self.sftp.execute_command(f"/system scheduler remove [find name={scheduler_name}]")
+                    logger.info(f"Rollback scheduler {scheduler_name} removed")
                 except Exception as e:
-                    logger.warning(
-                        f"Could not remove rollback scheduler: {e}. "
-                        f"It will auto-remove after execution."
-                    )
+                    logger.warning(f"Failed to remove rollback scheduler {scheduler_name}: {e}")
 
             logger.info(
                 f"IP service configuration applied successfully to {self.host}"
@@ -906,3 +900,196 @@ class MikrotikClient:
                 return service
         return None
 
+    def get_user_groups(self) -> List[Dict]:
+        """Get all user groups."""
+        try:
+            return self._execute_command("/user/group")
+        except Exception as e:
+            logger.error(f"Error getting user groups: {e}")
+            return []
+
+    def ensure_user_group(self, config: UserGroupConfig) -> bool:
+        """
+        Ensure a user group exists with the specified configuration.
+
+        Returns:
+            bool: True if changes were made, False otherwise.
+        """
+        try:
+            groups = self.get_user_groups()
+            existing_group = next((g for g in groups if g.get("name") == config.name), None)
+
+            # Prepare properties to set
+            properties = {
+                "policy": config.policy,
+            }
+            if config.skin:
+                properties["skin"] = config.skin
+            if config.comment:
+                properties["comment"] = config.comment
+
+            if existing_group:
+                # Check if update is needed
+                current_policy = existing_group.get("policy", "")
+                # Normalize policies for comparison (sort them)
+                current_policies = set(p.strip() for p in current_policy.split(",") if p.strip())
+                target_policies = set(p.strip() for p in config.policy.split(",") if p.strip())
+
+                # Logic to merge and resolve conflicts (remove !policy if policy is requested)
+                final_policies = current_policies.copy()
+                
+                for target_p in target_policies:
+                    final_policies.add(target_p)
+                    # Remove negated version if present (e.g. remove '!ftp' if adding 'ftp')
+                    negated_p = f"!{target_p}"
+                    if negated_p in final_policies:
+                        final_policies.remove(negated_p)
+                
+                needs_update = False
+                if final_policies != current_policies:
+                    needs_update = True
+                    properties["policy"] = ",".join(sorted(final_policies))
+                    # Calculate what was added/changed for logging
+                    added = final_policies - current_policies
+                    removed = current_policies - final_policies
+                    logger.info(f"Adjusting policies for group {config.name}. Added: {added}, Removed: {removed}")
+                else:
+                    if "policy" in properties:
+                        del properties["policy"]
+
+                if config.skin and existing_group.get("skin") != config.skin:
+                    needs_update = True
+                
+                # Check comment
+                if config.comment is not None:
+                    current_comment = existing_group.get("comment", "")
+                    if current_comment != config.comment:
+                        needs_update = True
+                        properties["comment"] = config.comment
+                else:
+                    if "comment" in properties:
+                        del properties["comment"]
+
+                if needs_update:
+                    group_id = existing_group.get(".id") or existing_group.get("id")
+                    if not group_id:
+                        raise ValueError(f"Could not find ID for group {config.name}")
+                    
+                    logger.info(f"Updating user group {config.name} on {self.host}")
+                    self.api.get_resource("/user/group").set(id=group_id, **properties)
+                    return True
+                else:
+                    logger.info(f"User group {config.name} already correctly configured on {self.host}")
+                    return False
+            else:
+                # Create new group
+                logger.info(f"Creating user group {config.name} on {self.host}")
+                properties["name"] = config.name
+                self.api.get_resource("/user/group").add(**properties)
+                return True
+
+        except Exception as e:
+            logger.error(f"Error ensuring user group {config.name}: {e}")
+            raise
+
+    def get_users(self) -> List[Dict]:
+        """Get all users."""
+        try:
+            return self._execute_command("/user")
+        except Exception as e:
+            logger.error(f"Error getting users: {e}")
+            return []
+
+    def ensure_user(self, config: UserConfig) -> bool:
+        """
+        Ensure a user exists with the specified configuration.
+
+        Returns:
+            bool: True if changes were made, False otherwise.
+        """
+        try:
+            users = self.get_users()
+            existing_user = next((u for u in users if u.get("name") == config.name), None)
+
+            properties = {
+                "group": config.group,
+            }
+            if config.password:
+                properties["password"] = config.password
+            if config.address:
+                properties["address"] = config.address
+            if config.comment:
+                properties["comment"] = config.comment
+
+            if existing_user:
+                # Check if update is needed
+                needs_update = False
+
+                if existing_user.get("group") != config.group:
+                    needs_update = True
+
+                # Check allowed address (ACL)
+                current_address = existing_user.get("address", "")
+                target_address = config.address or ""
+
+                # Normalize addresses for comparison
+                current_addresses = set(a.strip() for a in current_address.split(",")) if current_address else set()
+                target_addresses = set(a.strip() for a in target_address.split(",")) if target_address else set()
+                
+                # Additive logic: Ensure all target addresses are present
+                missing_addresses = target_addresses - current_addresses
+                
+                if missing_addresses:
+                    # If target has addresses but current is empty/None, it means "allow all".
+                    # Adding specific addresses to "allow all" restricts access, which is usually desired for security.
+                    # However, "insert missing" implies we want to ensure these specific IPs are allowed.
+                    # If current is empty (allow all), then technically nothing is "missing" in terms of access,
+                    # BUT the explicit configuration is missing.
+                    # We will append the new addresses.
+                    
+                    needs_update = True
+                    new_address_set = current_addresses | target_addresses
+                    # Remove empty strings if any
+                    new_address_set = {a for a in new_address_set if a}
+                    
+                    if new_address_set:
+                        properties["address"] = ",".join(sorted(new_address_set))
+                        logger.info(f"Adding missing ACLs to user {config.name}: {missing_addresses}")
+                    else:
+                         # Should not happen if missing_addresses is not empty
+                         pass
+                else:
+                    # If no missing addresses, don't update address field
+                    if "address" in properties:
+                        del properties["address"]
+
+                # Check comment
+                if config.comment is not None:
+                    current_comment = existing_user.get("comment", "")
+                    if current_comment != config.comment:
+                        needs_update = True
+                        properties["comment"] = config.comment
+                else:
+                     if "comment" in properties:
+                        del properties["comment"]
+
+                if needs_update:
+                    logger.info(f"Updating user {config.name} on {self.host}")
+                    user_id = existing_user.get(".id") or existing_user.get("id")
+                    if not user_id:
+                        raise ValueError(f"Could not find ID for user {config.name}")
+                    self.api.get_resource("/user").set(id=user_id, **properties)
+                    return True
+                else:
+                    logger.info(f"User {config.name} already correctly configured on {self.host}")
+                    return False
+            else:
+                # Create new user
+                logger.info(f"Creating user {config.name} on {self.host}")
+                properties["name"] = config.name
+                self.api.get_resource("/user").add(**properties)
+                return True
+
+        except Exception as e:
+            logger.error(f"Error ensuring user {config.name}: {e}")
+            raise
