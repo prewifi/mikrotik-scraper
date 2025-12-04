@@ -102,8 +102,8 @@ def main():
         else:
             logger.error("User verification failed!")
             
-        # 5. Test Additive Logic (Merge)
-        logger.info("Testing additive logic (merge)...")
+        # 5. Test Replacement Logic (Overwrite)
+        logger.info("Testing replacement logic (overwrite)...")
         
         # Add a new policy to the config
         test_group.policy = "ssh,read,test,api,reboot" # Added reboot
@@ -111,7 +111,7 @@ def main():
         changed_group = client.ensure_user_group(test_group)
         logger.info(f"Group merge status: {changed_group}")
         
-        # Verify merge
+        # Verify merge (Groups still use merge logic)
         groups = client.get_user_groups()
         g = next((g for g in groups if g.get("name") == test_group.name), {})
         if "reboot" in g.get("policy", ""):
@@ -119,19 +119,20 @@ def main():
         else:
              logger.error(f"Group merge FAILED: 'reboot' policy missing. Current: {g.get('policy')}")
 
-        # Add a new ACL to the user
-        test_user.address = "192.168.100.0/24,10.0.0.1" # Added 10.0.0.1
-        logger.info(f"Adding '10.0.0.1' ACL to user {test_user.name}...")
+        # Update ACL for user (Should replace, not merge)
+        test_user.address = "10.0.0.1" # Changed to single IP, removing previous range
+        logger.info(f"Changing ACL to '10.0.0.1' for user {test_user.name} (Should overwrite)...")
         changed_user = client.ensure_user(test_user)
-        logger.info(f"User merge status: {changed_user}")
+        logger.info(f"User update status: {changed_user}")
         
-        # Verify merge
+        # Verify replacement
         users = client.get_users()
         u = next((u for u in users if u.get("name") == test_user.name), {})
-        if "10.0.0.1" in u.get("address", ""):
-             logger.info("User merge PASSED: '10.0.0.1' ACL added")
+        current_acl = u.get("address", "")
+        if current_acl == "10.0.0.1":
+             logger.info(f"User ACL replacement PASSED: Current is '{current_acl}'")
         else:
-             logger.error(f"User merge FAILED: '10.0.0.1' ACL missing. Current: {u.get('address')}")
+             logger.error(f"User ACL replacement FAILED: Current is '{current_acl}' (Expected '10.0.0.1')")
 
         # 6. Test Idempotency (Run again)
         logger.info("Testing idempotency (running ensure again)...")

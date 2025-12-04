@@ -1033,33 +1033,23 @@ class MikrotikClient:
                 target_address = config.address or ""
 
                 # Normalize addresses for comparison
-                current_addresses = set(a.strip() for a in current_address.split(",")) if current_address else set()
-                target_addresses = set(a.strip() for a in target_address.split(",")) if target_address else set()
+                current_addresses = set(a.strip() for a in current_address.split(",") if a.strip())
+                target_addresses = set(a.strip() for a in target_address.split(",") if a.strip())
                 
-                # Additive logic: Ensure all target addresses are present
-                missing_addresses = target_addresses - current_addresses
-                
-                if missing_addresses:
-                    # If target has addresses but current is empty/None, it means "allow all".
-                    # Adding specific addresses to "allow all" restricts access, which is usually desired for security.
-                    # However, "insert missing" implies we want to ensure these specific IPs are allowed.
-                    # If current is empty (allow all), then technically nothing is "missing" in terms of access,
-                    # BUT the explicit configuration is missing.
-                    # We will append the new addresses.
-                    
+                # Replacement logic: If target is different from current, overwrite.
+                # Note: If target is empty, it means "allow all" (remove restriction).
+                if current_addresses != target_addresses:
                     needs_update = True
-                    new_address_set = current_addresses | target_addresses
-                    # Remove empty strings if any
-                    new_address_set = {a for a in new_address_set if a}
-                    
-                    if new_address_set:
-                        properties["address"] = ",".join(sorted(new_address_set))
-                        logger.info(f"Adding missing ACLs to user {config.name}: {missing_addresses}")
+                    if target_address:
+                        # Sort for consistency
+                        properties["address"] = ",".join(sorted(target_addresses))
+                        logger.info(f"Updating ACLs for user {config.name}. Old: {current_address}, New: {properties['address']}")
                     else:
-                         # Should not happen if missing_addresses is not empty
-                         pass
+                        # If target is empty, we want to remove the address property (allow all)
+                        # But 'set' command with empty string usually clears it.
+                        properties["address"] = "" 
+                        logger.info(f"Clearing ACLs for user {config.name} (Allow All)")
                 else:
-                    # If no missing addresses, don't update address field
                     if "address" in properties:
                         del properties["address"]
 
