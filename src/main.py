@@ -23,7 +23,7 @@ from analyzer import NetworkAnalyzer
 from backup_manager import BackupManager
 from inventory import InventoryManager
 from mikrotik_client import MikrotikClient
-from models import Router, IPServiceConfig, UserConfig, UserGroupConfig
+from models import Router, IPServiceConfig, UserConfig, UserGroupConfig, SyslogConfig, LoggingTopicConfig
 from sftp_client import SFTPClientManager
 
 console = Console()
@@ -848,6 +848,97 @@ def configure_users_and_groups(config: Dict) -> Tuple[int, int]:
 
     return successful, failed
 
+
+def configure_syslog_all_routers(config: Dict) -> Tuple[int, int]:
+    """
+    Configure syslog on all routers.
+
+    Parameters:
+        config (Dict): Configuration dictionary.
+
+    Returns:
+        Tuple[int, int]: Number of successful and failed configurations.
+    """
+    syslog_config = config.get("syslog", {})
+    if not syslog_config.get("enabled", False):
+        logger.info("Syslog configuration disabled")
+        return 0, 0
+
+    console.print("\n[bold cyan]Starting Syslog Configuration...[/bold cyan]")
+
+    successful = 0
+    failed = 0
+
+    routers_config = config.get("routers", [])
+    total_routers = len(routers_config)
+
+    # Prepare syslog config
+    try:
+        syslog_settings = SyslogConfig(
+            remote_server=syslog_config.get("remote_server"),
+            remote_port=syslog_config.get("remote_port", 514),
+            bsd_syslog=syslog_config.get("bsd_syslog", True),
+            syslog_facility=syslog_config.get("syslog_facility", "local0"),
+            syslog_severity=syslog_config.get("syslog_severity", "auto"),
+        )
+    except Exception as e:
+        logger.error(f"Invalid syslog configuration: {e}")
+        return 0, 1
+
+    # Prepare topic configs
+    topics_config = []
+    for t in syslog_config.get("topics", []):
+        topics_config.append(LoggingTopicConfig(**t))
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TimeRemainingColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task(
+            "[cyan]Configuring syslog...", total=total_routers
+        )
+
+        for router_conf in routers_config:
+            host = router_conf.get("ip") or router_conf.get("host")
+            username = router_conf.get("username", config.get("default_credentials", {}).get("username"))
+            password = router_conf.get("password", config.get("default_credentials", {}).get("password"))
+            port = router_conf.get("port", 8728)
+
+            progress.update(task, description=f"[cyan]Configuring syslog on {host}...")
+
+            client = MikrotikClient(host, username, password, port)
+
+            try:
+                if client.connect():
+                    logger.info(f"Connected to {host} for syslog configuration")
+
+                    # Configure syslog action (src_address is the router's IP)
+                    client.configure_syslog(syslog_settings, src_address=host)
+
+                    # Configure logging topics
+                    if topics_config:
+                        client.configure_logging_topics(topics_config)
+
+                    successful += 1
+                    client.disconnect()
+                else:
+                    logger.error(f"Failed to connect to {host}")
+                    failed += 1
+            except Exception as e:
+                logger.error(f"Error configuring syslog on {host}: {e}")
+                failed += 1
+
+            progress.advance(task)
+
+    console.print(f"\n[green]Successful: {successful}[/green]")
+    console.print(f"[red]Failed: {failed}[/red]")
+
+    return successful, failed
+
+
 def main():
     """Main entry point for the application."""
     parser = argparse.ArgumentParser(
@@ -891,7 +982,16 @@ def main():
         action="store_true",
         help="Only configure users and groups (skip inventory and backup)",
     )
-
+    parser.add_argument(
+        "--configure-syslog",
+        action="store_true",
+        help="Configure syslog on all routers",
+    )
+    parser.add_argument(
+        "--configure-syslog-only",
+        action="store_true",
+        help="Only configure syslog (skip inventory and backup)",
+    )
 
 
     args = parser.parse_args()
@@ -931,18 +1031,116 @@ def main():
             )
             configure_users_and_groups(config)
 
+        elif args.configure_syslog_only:
+            # Configure syslog only mode
+            console.print(
+                "[bold cyan]Syslog configuration only mode...[/bold cyan]"
+            )
+            configure_syslog_all_routers(config)
+
         elif args.backup_only:
-            # Backup only mode - collect data first, then backup
-            console.print("[bold cyan]Backup-only mode: collecting router data first...[/bold cyan]")
-            routers = collect_all_routers(config)
-
-            if not routers:
-                console.print("[red]No routers were successfully queried. Exiting.[/red]")
-                sys.exit(1)
-
-            # Perform backup
+            # Backup only mode - connect to routers just for backup, skip full data collection
+            console.print("[bold cyan]Backup-only mode...[/bold cyan]")
+            
             router_configs = config.get("routers", [])
-            backup_all_routers(routers, config, router_configs)
+            backup_config = config.get("backup", {})
+            sftp_config = config.get("sftp", {})
+            default_creds = config.get("default_credentials", {})
+            
+            if not backup_config.get("enabled", True):
+                console.print("[yellow]Backup is disabled in configuration[/yellow]")
+                sys.exit(0)
+            
+            console.print(f"\n[bold cyan]Starting backup process for {len(router_configs)} router(s)...[/bold cyan]\n")
+            
+            sftp_enabled = sftp_config.get("enabled", True)
+            sftp_port = sftp_config.get("port", 22)
+            sftp_timeout = sftp_config.get("timeout", 30)
+            
+            backup_manager = BackupManager(
+                backup_dir=backup_config.get("directory", "inventory"),
+                use_sftp=sftp_enabled,
+            )
+            
+            successful = 0
+            failed = 0
+            
+            for rc in router_configs:
+                host = rc.get("ip") or rc.get("host")
+                username = rc.get("username", default_creds.get("username"))
+                password = rc.get("password", default_creds.get("password"))
+                port = rc.get("port", default_creds.get("port", 8728))
+                
+                sftp_username = sftp_config.get("username", username)
+                sftp_password = sftp_config.get("password", password)
+                
+                console.print(f"[cyan]Backing up {host}...[/cyan]")
+                
+                # Connect to get identity only
+                client = MikrotikClient(host, username, password, port)
+                try:
+                    if client.connect():
+                        # Get identity for directory naming
+                        identity = client.get_identity() or host
+                        
+                        # Create minimal Router object for backup_manager
+                        from models import Router
+                        minimal_router = Router(
+                            ip_address=host,
+                            identity=identity,
+                            connection_successful=True,
+                        )
+                        
+                        # Perform backup
+                        if backup_config.get("create_backup", True):
+                            success, backup_name = backup_manager.create_backup(
+                                client.api, minimal_router
+                            )
+                            if success:
+                                logger.info(f"Backup created: {backup_name}")
+                        
+                        # Export configuration
+                        if backup_config.get("export_config", True):
+                            success, export_name = backup_manager.export_configuration(
+                                client.api, minimal_router
+                            )
+                            if success:
+                                logger.info(f"Export created: {export_name}")
+                        
+                        # Download files via SFTP
+                        if sftp_enabled:
+                            sftp_client = SFTPClientManager(
+                                host, sftp_username, sftp_password,
+                                sftp_port, sftp_timeout
+                            )
+                            if sftp_client.connect():
+                                local_dir = backup_manager.get_router_backup_dir(identity)
+                                
+                                backup_files = backup_manager.get_backup_files(sftp_client)
+                                if backup_files:
+                                    backup_manager.download_backup_files(
+                                        sftp_client, minimal_router, backup_files, local_dir
+                                    )
+                                
+                                rsc_files = backup_manager.get_rsc_files(sftp_client)
+                                if rsc_files:
+                                    backup_manager.download_rsc_files(
+                                        sftp_client, minimal_router, rsc_files, local_dir
+                                    )
+                                
+                                sftp_client.disconnect()
+                        
+                        successful += 1
+                        client.disconnect()
+                    else:
+                        logger.error(f"Failed to connect to {host}")
+                        failed += 1
+                except Exception as e:
+                    logger.error(f"Error backing up {host}: {e}")
+                    failed += 1
+            
+            console.print(f"\n[green]Successful: {successful}[/green]")
+            console.print(f"[red]Failed: {failed}[/red]")
 
         else:
             # Normal mode - collect inventory

@@ -133,3 +133,45 @@ user_management:
       password: "secure_password" # Optional: update password if specified
       address: "10.0.0.0/8,192.168.0.0/16" # Allowed addresses (ACL)
       comment: "Automation user"
+
+# Syslog Configuration
+syslog:
+  enabled: false # Enable syslog configuration
+  remote_server: "10.0.0.100" # Syslog server IP/hostname
+  remote_port: 514 # Syslog port (default: 514)
+  bsd_syslog: true # Use BSD syslog format
+  syslog_facility: "local0" # local0-local7
+  syslog_severity: "auto" # auto, debug, info, warning, error, critical
+  
+  # Logging topics to send to syslog
+  # Each entry creates a logging rule pointing to the 'remote' action
+  # 'topics' can be a single topic or comma-separated topics for concatenation
+  # 'prefix' is optional and will be prepended to log messages
+  topics:
+    # Basic topics (single topic)
+    - topics: "info"
+    - topics: "warning"
+    - topics: "error"
+    - topics: "critical"
+    
+    # Concatenated topics with prefix (for specific filtering)
+    - topics: "interface,info"
+      prefix: "IF-INFO"
+    - topics: "interface,warning"
+      prefix: "IF-WARN"
+    - topics: "firewall,info"
+      prefix: "FW-INFO"
+    - topics: "firewall,warning"
+      prefix: "FW-WARN"
+    - topics: "ppp,info"
+      prefix: "PPP-INFO"
+    - topics: "ppp,error"
+      prefix: "PPP-ERR"
+    - topics: "dhcp,info"
+      prefix: "DHCP"
+    - topics: "wireless,info"
+      prefix: "WLAN"
+    - topics: "system,info"
+      prefix: "SYS"
+    - topics: "account"
+      prefix: "AUTH"

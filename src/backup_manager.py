@@ -83,8 +83,9 @@ class BackupManager:
             # Get backup resource
             backup_resource = api.get_resource("/system/backup")
 
-            # Create backup
-            backup_resource.call("save", {"name": backup_name})
+            # Create backup without encryption to avoid password issues on restore
+            # dont-encrypt=yes creates a plain backup that can be restored without password
+            backup_resource.call("save", {"name": backup_name, "dont-encrypt": "yes"})
 
             logger.info(f"Backup created successfully: {backup_name}")
             

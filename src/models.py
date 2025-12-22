@@ -221,6 +221,22 @@ class UserConfig(BaseModel):
     comment: Optional[str] = Field(None, description="Comment")
 
 
+class SyslogConfig(BaseModel):
+    """Represents syslog remote action configuration."""
+
+    remote_server: str = Field(..., description="Remote syslog server IP/hostname")
+    remote_port: int = Field(default=514, description="Remote syslog port")
+    bsd_syslog: bool = Field(default=True, description="Use BSD syslog format")
+    syslog_facility: str = Field(default="local0", description="Syslog facility (local0-local7)")
+    syslog_severity: str = Field(default="auto", description="Syslog severity (auto, debug, info, etc.)")
+
+
+class LoggingTopicConfig(BaseModel):
+    """Represents a logging topic configuration."""
+
+    topics: str = Field(..., description="Comma-separated list of topics (e.g., 'info,warning,error')")
+    action: str = Field(default="remote", description="Logging action to use (default: remote)")
+    prefix: Optional[str] = Field(None, description="Optional prefix for log messages")
 
 
 class NetworkInventory(BaseModel):

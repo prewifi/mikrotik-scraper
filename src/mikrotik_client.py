@@ -15,11 +15,13 @@ from models import (
     IPAddress,
     IPService,
     IPServiceConfig,
+    LoggingTopicConfig,
     Neighbor,
     PPPoEActive,
     PPPoESecret,
     Router,
     Scheduler,
+    SyslogConfig,
     SystemResource,
     UserConfig,
     UserGroupConfig,
@@ -109,6 +111,25 @@ class MikrotikClient:
             finally:
                 self.connection = None
                 self.api = None
+
+    def get_identity(self) -> Optional[str]:
+        """
+        Get the router's system identity.
+
+        Returns:
+            Optional[str]: Router identity or None if error.
+        """
+        if not self.api:
+            return None
+        try:
+            identity_resource = self.api.get_resource("/system/identity")
+            result = identity_resource.get()
+            if result:
+                return result[0].get("name") if isinstance(result, list) else result.get("name")
+            return None
+        except Exception as e:
+            logger.error(f"Error getting identity from {self.host}: {e}")
+            return None
 
     def _execute_command(self, path: str) -> List[Dict]:
         """
@@ -1082,4 +1103,129 @@ class MikrotikClient:
 
         except Exception as e:
             logger.error(f"Error ensuring user {config.name}: {e}")
+            raise
+
+    def configure_syslog(self, config: SyslogConfig, src_address: str) -> bool:
+        """
+        Configure the 'remote' syslog action.
+
+        Parameters:
+            config (SyslogConfig): Syslog configuration.
+            src_address (str): Source address (RouterBoard IP).
+
+        Returns:
+            bool: True if changes were made, False otherwise.
+        """
+        if not self.api:
+            logger.error("Not connected to router")
+            return False
+
+        try:
+            # Get current 'remote' action
+            logging_actions = self._execute_command("/system/logging/action")
+            remote_action = next(
+                (a for a in logging_actions if a.get("name") == "remote"), None
+            )
+
+            if not remote_action:
+                logger.error(f"'remote' logging action not found on {self.host}")
+                return False
+
+            action_id = remote_action.get(".id") or remote_action.get("id")
+            if not action_id:
+                raise ValueError("Could not find ID for 'remote' logging action")
+
+            # Prepare properties
+            properties = {
+                "target": "remote",
+                "remote": config.remote_server,
+                "remote-port": str(config.remote_port),
+                "src-address": src_address,
+                "bsd-syslog": "yes" if config.bsd_syslog else "no",
+                "syslog-facility": config.syslog_facility,
+                "syslog-severity": config.syslog_severity,
+            }
+
+            # Check if update is needed
+            current_remote = remote_action.get("remote", "")
+            current_src = remote_action.get("src-address", "")
+            current_port = remote_action.get("remote-port", "514")
+
+            needs_update = (
+                current_remote != config.remote_server
+                or current_src != src_address
+                or str(current_port) != str(config.remote_port)
+            )
+
+            if needs_update:
+                logger.info(f"Configuring syslog on {self.host} to send to {config.remote_server}:{config.remote_port}")
+                self.api.get_resource("/system/logging/action").set(id=action_id, **properties)
+                return True
+            else:
+                logger.info(f"Syslog already correctly configured on {self.host}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error configuring syslog on {self.host}: {e}")
+            raise
+
+    def configure_logging_topics(self, topics_config: List[LoggingTopicConfig]) -> bool:
+        """
+        Configure logging topics to use the 'remote' action.
+
+        Parameters:
+            topics_config (List[LoggingTopicConfig]): List of topic configurations.
+
+        Returns:
+            bool: True if changes were made, False otherwise.
+        """
+        if not self.api:
+            logger.error("Not connected to router")
+            return False
+
+        try:
+            # Get current logging rules
+            logging_rules = self._execute_command("/system/logging")
+            
+            changes_made = False
+
+            for topic_conf in topics_config:
+                topics = topic_conf.topics
+                action = topic_conf.action
+                prefix = topic_conf.prefix
+
+                # Check if rule already exists
+                existing_rule = next(
+                    (r for r in logging_rules 
+                     if r.get("topics") == topics and r.get("action") == action),
+                    None
+                )
+
+                if existing_rule:
+                    # Check if prefix needs update
+                    current_prefix = existing_rule.get("prefix", "")
+                    if prefix is not None and current_prefix != prefix:
+                        rule_id = existing_rule.get(".id") or existing_rule.get("id")
+                        if rule_id:
+                            logger.info(f"Updating logging rule prefix for topics '{topics}' on {self.host}")
+                            self.api.get_resource("/system/logging").set(id=rule_id, prefix=prefix)
+                            changes_made = True
+                    else:
+                        logger.info(f"Logging rule for topics '{topics}' already exists on {self.host}")
+                else:
+                    # Create new rule
+                    logger.info(f"Creating logging rule for topics '{topics}' with action '{action}' on {self.host}")
+                    properties = {
+                        "topics": topics,
+                        "action": action,
+                    }
+                    if prefix:
+                        properties["prefix"] = prefix
+                    self.api.get_resource("/system/logging").add(**properties)
+                    changes_made = True
+
+            return changes_made
+
+        except Exception as e:
+            logger.error(f"Error configuring logging topics on {self.host}: {e}")
             raise
