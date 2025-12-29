@@ -1091,24 +1091,62 @@ def main():
                             connection_successful=True,
                         )
                         
+                        # Track created files for download
+                        created_backup_file = None
+                        created_rsc_file = None
+                        
                         # Perform backup
                         if backup_config.get("create_backup", True):
                             success, backup_name = backup_manager.create_backup(
                                 client.api, minimal_router
                             )
                             if success:
-                                logger.info(f"Backup created: {backup_name}")
+                                created_backup_file = f"{backup_name}.backup"
+                                logger.info(f"Backup created: {created_backup_file}")
                         
-                        # Export configuration
+                        # Export configuration via SSH (API doesn't support export)
+                        created_rsc_verbose_file = None
                         if backup_config.get("export_config", True):
-                            success, export_name = backup_manager.export_configuration(
-                                client.api, minimal_router
+                            timestamp = time.strftime("%Y%m%d")
+                            clean_identity = identity.replace(" ", "_").replace("/", "_").upper()
+                            export_name = f"{timestamp}_{clean_identity}"
+                            export_name_verbose = f"{timestamp}_{clean_identity}_verbose"
+                            
+                            # Use SSH to execute export commands
+                            export_sftp = SFTPClientManager(
+                                host, sftp_username, sftp_password, sftp_port, sftp_timeout
                             )
-                            if success:
-                                logger.info(f"Export created: {export_name}")
+                            if export_sftp.connect():
+                                # Normal export
+                                export_cmd = f'/export file="{export_name}"'
+                                success, stdout, stderr = export_sftp.execute_command(export_cmd)
+                                
+                                if success:
+                                    created_rsc_file = f"{export_name}.rsc"
+                                    logger.info(f"Export created via SSH: {created_rsc_file}")
+                                else:
+                                    logger.error(f"Export failed: {stderr}")
+                                
+                                # Verbose export
+                                export_cmd_verbose = f'/export verbose file="{export_name_verbose}"'
+                                success_v, stdout_v, stderr_v = export_sftp.execute_command(export_cmd_verbose)
+                                
+                                if success_v:
+                                    created_rsc_verbose_file = f"{export_name_verbose}.rsc"
+                                    logger.info(f"Verbose export created via SSH: {created_rsc_verbose_file}")
+                                else:
+                                    logger.error(f"Verbose export failed: {stderr_v}")
+                                
+                                export_sftp.disconnect()
+                                
+                                # Wait for files to be written
+                                import time as time_module
+                                time_module.sleep(5)
+                            else:
+                                logger.error(f"Could not connect via SSH to export config on {host}")
                         
-                        # Download files via SFTP
-                        if sftp_enabled:
+                        # Download only the newly created files via SFTP
+                        if sftp_enabled and (created_backup_file or created_rsc_file or created_rsc_verbose_file):
                             sftp_client = SFTPClientManager(
                                 host, sftp_username, sftp_password,
                                 sftp_port, sftp_timeout
@@ -1116,16 +1154,22 @@ def main():
                             if sftp_client.connect():
                                 local_dir = backup_manager.get_router_backup_dir(identity)
                                 
-                                backup_files = backup_manager.get_backup_files(sftp_client)
-                                if backup_files:
+                                # Download only the specific backup file just created
+                                if created_backup_file:
                                     backup_manager.download_backup_files(
-                                        sftp_client, minimal_router, backup_files, local_dir
+                                        sftp_client, minimal_router, [created_backup_file], local_dir
                                     )
                                 
-                                rsc_files = backup_manager.get_rsc_files(sftp_client)
-                                if rsc_files:
+                                # Download only the specific RSC files just created
+                                rsc_files_to_download = []
+                                if created_rsc_file:
+                                    rsc_files_to_download.append(created_rsc_file)
+                                if created_rsc_verbose_file:
+                                    rsc_files_to_download.append(created_rsc_verbose_file)
+                                
+                                if rsc_files_to_download:
                                     backup_manager.download_rsc_files(
-                                        sftp_client, minimal_router, rsc_files, local_dir
+                                        sftp_client, minimal_router, rsc_files_to_download, local_dir
                                     )
                                 
                                 sftp_client.disconnect()
