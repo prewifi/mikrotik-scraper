@@ -1,6 +1,6 @@
 # Mikrotik Network Inventory System
 
-Complete Python system for automated network inventory collection, analysis, and management for Mikrotik RouterOS routers.
+Complete system for automated network inventory collection, analysis, backup, and management for Mikrotik RouterOS routers.
 
 ## Features
 
@@ -11,24 +11,17 @@ Complete Python system for automated network inventory collection, analysis, and
   - IP Addresses (`/ip/address`)
   - Active PPPoE connections and secrets (`/ppp/active`, `/ppp/secret`)
   - System resources (`/system/resource`, `/system/identity`)
-
-- **Multi-format Export**: Saves inventory in:
-  - JSON (for automated processing)
-  - YAML (human-readable)
-  - Text summary (readable report)
-
+- **Automated Backups**: Creates and downloads backups (`.backup` and `.rsc`)
+- **Configuration Management**: 
+  - Manage IP Services (api, ssh, www, etc.)
+  - Manage Users and Groups
+  - Configure Remote Syslog
+- **Multi-format Export**: Saves inventory in JSON, YAML, and Text summary
 - **Advanced Logging**: Uses Rich for colored output and progress bars
-
-## Tested and Functional
-
-The system has been successfully tested on:
-- RouterOS 6.42.1 (stable) on MikroTik RB2011iL
-- Complete collection of 24 interfaces, 11 neighbors, 6 PPPoE connections
-- Verified JSON/YAML export
 
 ## Requirements
 
-- Python 3.9+
+- Docker and Docker Compose
 - RouterOS API enabled on Mikrotik routers (port 8728)
 - Router access credentials
 
@@ -41,19 +34,7 @@ git clone https://github.com/prewifi/mikrotik-scraper.git
 cd mikrotik-scraper
 ```
 
-### 2. Install dependencies
-
-```bash
-pip install -e .
-```
-
-or for the development environment:
-
-```bash
-pip install -e ".[dev]"
-```
-
-### 3. Configure the routers
+### 2. Configure the routers
 
 Copy the example configuration file and modify it with your routers:
 
@@ -80,185 +61,119 @@ routers:
 
 **IMPORTANT**: Do not commit `config.yaml` to the repository! It contains sensitive credentials.
 
+### 3. Start the Container
+
+Run the system using Docker Compose:
+
+```bash
+# Production
+docker compose -f compose.prod.yaml up -d
+```
+
 ## Usage
 
-### Basic execution
+Once the container is running, you can execute commands using `docker exec`.
+
+### Inventory Collection (Default)
 
 ```bash
-python src/main.py
+docker exec mikrotik-scraper-prod python3 src/main.py
 ```
 
-### Available options
+### Backup Operations
+
+Create and download backups (`.backup` and `.rsc`):
 
 ```bash
-python src/main.py --help
+# Inventory + Backup
+docker exec mikrotik-scraper-prod python3 src/main.py --backup
+
+# Backup Only (skip inventory)
+docker exec mikrotik-scraper-prod python3 src/main.py --backup-only
 ```
 
-Options:
+### Configuration Management
+
+**IP Services:**
+```bash
+docker exec mikrotik-scraper-prod python3 src/main.py --configure-services
+```
+
+**Users and Groups:**
+```bash
+docker exec mikrotik-scraper-prod python3 src/main.py --configure-users
+```
+
+**Syslog:**
+```bash
+docker exec mikrotik-scraper-prod python3 src/main.py --configure-syslog
+```
+
+### Available Options
+
+```bash
+docker exec mikrotik-scraper-prod python3 src/main.py --help
+```
+
+Common options:
 - `-c, --config FILE`: Specify an alternative configuration file (default: `config.yaml`)
 - `-o, --output-dir DIR`: Output directory for generated files
 - `--json-only`: Save only in JSON format
 - `--yaml-only`: Save only in YAML format
 
-### Examples
+## Output
 
-```bash
-# Use an alternative configuration
-python src/main.py -c config-production.yaml
+The system generates files in the `results/` directory (mapped volume):
 
-# Save only in JSON format
-python src/main.py --json-only
+### 1. Execution Reports
+After each operation, a report is generated:
+- `backup_report_YYYYMMDD_HHMMSS.txt`
 
-# Specify a custom output directory
-python src/main.py -o /path/to/output
-```
+### 2. Inventory Files
+- JSON: `inventory_YYYYMMDD_HHMMSS.json`
+- YAML: `inventory_YYYYMMDD_HHMMSS.yaml`
+- Summary: `summary_YYYYMMDD_HHMMSS.txt`
+
+## Local Development (Python)
+
+If you prefer to run the script locally without Docker:
+
+1. Install dependencies:
+   ```bash
+   pip install -e ".[dev]"
+   ```
+
+2. Run the script:
+   ```bash
+   python src/main.py
+   ```
 
 ## Project Structure
 
 ```
 mikrotik-scraper/
 ├── src/
-│   ├── __init__.py
 │   ├── main.py              # Main entry point
 │   ├── models.py            # Pydantic data models
 │   ├── mikrotik-client.py   # RouterOS API client
-│   ├── analyzer.py          # Network topology analyzer
-│   └── inventory.py         # Inventory save/load management
+│   ├── backup_manager.py    # Backup logic
+│   ├── sftp_client.py       # SFTP/SSH client
+│   └── ...
 ├── config.yaml.example      # Configuration template
-├── pyproject.toml          # Project and dependency configuration
-├── requirements-dev.txt    # Development dependencies
+├── compose.prod.yaml        # Production Docker Compose
+├── compose.dev.yaml         # Development Docker Compose
+├── requirements.txt         # Dependencies
 └── README.md               # This documentation
 ```
-
-## Output
-
-The system generates three types of files in the `output/` directory:
-
-### 1. JSON (`inventory_YYYYMMDD_HHMMSS.json`)
-Structured format for automated processing:
-```json
-{
-  "routers": [...],
-  "links": [...],
-  "anomalies": [...],
-  "stats": {...}
-}
-```
-
-### 2. YAML (`inventory_YYYYMMDD_HHMMSS.yaml`)
-Human-readable format identical to JSON but more readable.
-
-### 3. Summary (`summary_YYYYMMDD_HHMMSS.txt`)
-Text report with:
-- General statistics
-- List of routers with status
-- Identified links by type
-- Detected anomalies with suggestions
-
-## Implemented Analysis
-
-### Link Identification
-
-1. **Backbone Links**: Ethernet connections between known routers
-2. **PTP (Point-to-Point)**: Wireless links in station mode
-3. **PTMP (Point-to-Multipoint)**: Wireless links in ap-bridge mode
-4. **PPPoE**: Active PPPoE client-server connections
-
-### Anomaly Detection
-
-- Interfaces with multiple IP addresses
-- Disabled interfaces with active IPs
-- Neighbors not present in the inventory
-- Many inactive PPPoE accounts
-- Interfaces without descriptive comments
-- Obsolete RouterOS versions
-
-## Advanced Configuration
-
-### Parallel Collection
-
-To speed up collection on many routers:
-
-```yaml
-collection:
-  parallel: true
-  max_workers: 10
-  retry_failed: true
-  retry_attempts: 2
-```
-
-### Logging
-
-Configure the logging level:
-
-```yaml
-logging:
-  level: "DEBUG"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
-  file: "mikrotik-inventory.log"
-  console: true
-```
-
-## Troubleshooting
-
-### Router connection error
-
-1. Check that the API is enabled on the router:
-   ```
-   /ip service print
-   ```
-   The API must be enabled on port 8728
-
-2. Check the firewall:
-   ```
-   /ip firewall filter print
-   ```
-   Make sure that port 8728 is accessible
-
-3. Verify the credentials in `config.yaml`
-
-### Issues with librouteros
-
-If you have problems with the library, try:
-
-```bash
-pip uninstall librouteros
-pip install librouteros==3.2.1
-```
-
-## Logs
-
-Logs are saved in `mikrotik-inventory.log` and include:
-- Timestamps of operations
-- Success/failure of connections
-- Data collected for each router
-- Errors and warnings
 
 ## Security
 
 - **NEVER** commit `config.yaml` with real credentials
 - Use appropriate file permissions: `chmod 600 config.yaml`
-- Consider using environment variables for sensitive passwords
 - Limit API access to only necessary IPs on the routers
-
-## Contributing
-
-To contribute to the project:
-
-1. Fork the repository
-2. Create a branch for the feature (`git checkout -b feature/new-feature`)
-3. Commit your changes (`git commit -am 'Add new feature'`)
-4. Push to the branch (`git push origin feature/new-feature`)
-5. Open a Pull Request
-
 
 ## Acknowledgments
 
 - [librouteros](https://github.com/luqasz/librouteros) - RouterOS API client
 - [Pydantic](https://pydantic-docs.helpmanual.io/) - Data validation
 - [Rich](https://rich.readthedocs.io/) - Terminal formatting
-
-## Support
-
-For issues, questions, or suggestions, please open an issue on GitHub.
-
----
