@@ -237,6 +237,7 @@ class LoggingTopicConfig(BaseModel):
     topics: str = Field(..., description="Comma-separated list of topics (e.g., 'info,warning,error')")
     action: str = Field(default="remote", description="Logging action to use (default: remote)")
     prefix: Optional[str] = Field(None, description="Optional prefix for log messages")
+    disabled: bool = Field(default=False, description="Whether the logging rule is disabled")
 
 
 class NetworkInventory(BaseModel):

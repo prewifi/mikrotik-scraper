@@ -90,6 +90,85 @@ def load_config(config_path: str) -> Dict:
         sys.exit(1)
 
 
+def generate_execution_report(
+    operation_name: str,
+    successful_routers: List[Dict],
+    failed_routers: List[Dict],
+    output_dir: str = "results",
+) -> str:
+    """
+    Generate an execution report file with successful and failed routers.
+
+    Parameters:
+        operation_name (str): Name of the operation (e.g., 'backup', 'syslog', 'users').
+        successful_routers (List[Dict]): List of dicts with 'ip' and 'identity' for successful routers.
+        failed_routers (List[Dict]): List of dicts with 'ip', 'identity', and 'error' for failed routers.
+        output_dir (str): Directory to save the report (default: 'results').
+
+    Returns:
+        str: Path to the generated report file.
+    """
+    from datetime import datetime
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_filename = f"{operation_name}_report_{timestamp}.txt"
+    
+    # Ensure output directory exists
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    
+    report_path = output_path / report_filename
+    
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write(f"{'='*60}\n")
+        f.write(f"EXECUTION REPORT: {operation_name.upper()}\n")
+        f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"{'='*60}\n\n")
+        
+        # Summary
+        total = len(successful_routers) + len(failed_routers)
+        f.write(f"SUMMARY\n")
+        f.write(f"-" * 30 + "\n")
+        f.write(f"Total Routers:   {total}\n")
+        f.write(f"Successful:      {len(successful_routers)}\n")
+        f.write(f"Failed:          {len(failed_routers)}\n")
+        f.write(f"\n")
+        
+        # Successful routers
+        f.write(f"SUCCESSFUL ROUTERS ({len(successful_routers)})\n")
+        f.write(f"-" * 30 + "\n")
+        if successful_routers:
+            for router in successful_routers:
+                identity = router.get("identity", "Unknown")
+                ip = router.get("ip", "Unknown")
+                f.write(f"  ✓ {identity} ({ip})\n")
+        else:
+            f.write("  (none)\n")
+        f.write(f"\n")
+        
+        # Failed routers
+        f.write(f"FAILED ROUTERS ({len(failed_routers)})\n")
+        f.write(f"-" * 30 + "\n")
+        if failed_routers:
+            for router in failed_routers:
+                identity = router.get("identity", "Unknown")
+                ip = router.get("ip", "Unknown")
+                error = router.get("error", "Unknown error")
+                f.write(f"  ✗ {identity} ({ip})\n")
+                f.write(f"    Error: {error}\n")
+        else:
+            f.write("  (none)\n")
+        
+        f.write(f"\n{'='*60}\n")
+        f.write(f"END OF REPORT\n")
+    
+    logger.info(f"Execution report saved to: {report_path}")
+    console.print(f"[cyan]Report saved to: {report_path}[/cyan]")
+    
+    return str(report_path)
+
+
+
 def collect_router_data(
     ip: str,
     username: str,
@@ -1062,8 +1141,9 @@ def main():
                 use_sftp=sftp_enabled,
             )
             
-            successful = 0
-            failed = 0
+            # Track results for report
+            successful_routers = []
+            failed_routers = []
             
             for rc in router_configs:
                 host = rc.get("ip") or rc.get("host")
@@ -1174,17 +1254,25 @@ def main():
                                 
                                 sftp_client.disconnect()
                         
-                        successful += 1
+                        successful_routers.append({"ip": host, "identity": identity})
                         client.disconnect()
                     else:
                         logger.error(f"Failed to connect to {host}")
-                        failed += 1
+                        failed_routers.append({"ip": host, "identity": host, "error": "Failed to connect"})
                 except Exception as e:
                     logger.error(f"Error backing up {host}: {e}")
-                    failed += 1
+                    failed_routers.append({"ip": host, "identity": host, "error": str(e)})
             
-            console.print(f"\n[green]Successful: {successful}[/green]")
-            console.print(f"[red]Failed: {failed}[/red]")
+            # Generate execution report
+            generate_execution_report(
+                operation_name="backup",
+                successful_routers=successful_routers,
+                failed_routers=failed_routers,
+                output_dir=backup_config.get("directory", "results"),
+            )
+            
+            console.print(f"\n[green]Successful: {len(successful_routers)}[/green]")
+            console.print(f"[red]Failed: {len(failed_routers)}[/red]")
 
         else:
             # Normal mode - collect inventory

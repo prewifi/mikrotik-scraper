@@ -1193,6 +1193,7 @@ class MikrotikClient:
                 topics = topic_conf.topics
                 action = topic_conf.action
                 prefix = topic_conf.prefix
+                disabled = topic_conf.disabled
 
                 # Check if rule already exists
                 existing_rule = next(
@@ -1202,22 +1203,41 @@ class MikrotikClient:
                 )
 
                 if existing_rule:
-                    # Check if prefix needs update
+                    # Check if updates are needed
+                    updates = {}
+                    
+                    # Check prefix
                     current_prefix = existing_rule.get("prefix", "")
                     if prefix is not None and current_prefix != prefix:
+                        updates["prefix"] = prefix
+
+                    # Check disabled status
+                    # API usually returns 'true'/'false' strings or bools
+                    current_disabled = existing_rule.get("disabled")
+                    # Normalize current_disabled to bool
+                    if isinstance(current_disabled, str):
+                        is_currently_disabled = current_disabled.lower() == "true"
+                    else:
+                        is_currently_disabled = bool(current_disabled)
+                    
+                    if is_currently_disabled != disabled:
+                        updates["disabled"] = "yes" if disabled else "no"
+
+                    if updates:
                         rule_id = existing_rule.get(".id") or existing_rule.get("id")
                         if rule_id:
-                            logger.info(f"Updating logging rule prefix for topics '{topics}' on {self.host}")
-                            self.api.get_resource("/system/logging").set(id=rule_id, prefix=prefix)
+                            logger.info(f"Updating logging rule for topics '{topics}' on {self.host}: {updates}")
+                            self.api.get_resource("/system/logging").set(id=rule_id, **updates)
                             changes_made = True
                     else:
-                        logger.info(f"Logging rule for topics '{topics}' already exists on {self.host}")
+                        logger.info(f"Logging rule for topics '{topics}' already correctly configured on {self.host}")
                 else:
                     # Create new rule
                     logger.info(f"Creating logging rule for topics '{topics}' with action '{action}' on {self.host}")
                     properties = {
                         "topics": topics,
                         "action": action,
+                        "disabled": "yes" if disabled else "no",
                     }
                     if prefix:
                         properties["prefix"] = prefix

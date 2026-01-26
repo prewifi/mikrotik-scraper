@@ -147,6 +147,7 @@ syslog:
   # Each entry creates a logging rule pointing to the 'remote' action
   # 'topics' can be a single topic or comma-separated topics for concatenation
   # 'prefix' is optional and will be prepended to log messages
+  # 'disabled' is optional (default: false) to disable a specific rule
   topics:
     # Basic topics (single topic)
     - topics: "info"
@@ -175,3 +176,7 @@ syslog:
       prefix: "SYS"
     - topics: "account"
       prefix: "AUTH"
+      
+    # Example of a disabled rule
+    - topics: "debug"
+      disabled: true
