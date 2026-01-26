@@ -7,8 +7,8 @@ set -e
 case "$1" in
   "dev:start")
     echo "Starting development environment..."
-    docker compose -f compose.dev.yaml up -d ubiquiti-automation-dev
-    echo "Container started. Access with: docker compose -f compose.dev.yaml exec ubiquiti-automation-dev bash"
+    docker compose -f compose.dev.yaml up -d mikrotik-scraper-dev
+    echo "Container started. Access with: docker compose -f compose.dev.yaml exec mikrotik-scraper-dev bash"
     ;;
 
   "dev:stop")
@@ -19,11 +19,11 @@ case "$1" in
   "dev:rebuild")
     echo "Rebuilding development image..."
     docker compose -f compose.dev.yaml build --no-cache
-    docker compose -f compose.dev.yaml up -d ubiquiti-automation-dev
+    docker compose -f compose.dev.yaml up -d mikrotik-scraper-dev
     ;;
 
   "dev:bash")
-    docker compose -f compose.dev.yaml exec ubiquiti-automation-dev bash
+    docker compose -f compose.dev.yaml exec mikrotik-scraper-dev bash
     ;;
 
   "prod:start")
@@ -40,40 +40,40 @@ case "$1" in
 
   "test")
     echo "Running tests..."
-    docker compose -f compose.dev.yaml exec ubiquiti-automation-dev pytest tests/ -v --tb=short
+    docker compose -f compose.dev.yaml exec mikrotik-scraper-dev pytest tests/ -v --tb=short
     ;;
 
   "lint")
     echo "Running linters..."
-    docker compose -f compose.dev.yaml exec ubiquiti-automation-dev bash -c "black --check src/ && flake8 src/ && mypy src/"
+    docker compose -f compose.dev.yaml exec mikrotik-scraper-dev bash -c "black --check src/ && flake8 src/ && mypy src/"
     ;;
 
   "format")
     echo "Formatting code..."
-    docker compose -f compose.dev.yaml exec ubiquiti-automation-dev bash -c "black src/ && isort src/"
+    docker compose -f compose.dev.yaml exec mikrotik-scraper-dev bash -c "black src/ && isort src/"
     ;;
 
   "commit")
     echo "Starting interactive commit..."
-    docker compose -f compose.dev.yaml exec ubiquiti-automation-dev cz commit
+    docker compose -f compose.dev.yaml exec mikrotik-scraper-dev cz commit
     ;;
 
   "run:inventory")
     echo "Running inventory collection with config.yaml..."
-    docker compose -f compose.dev.yaml exec ubiquiti-automation-dev python3 src/main.py -c config.yaml
+    docker compose -f compose.dev.yaml exec mikrotik-scraper-dev python3 src/main.py -c config.yaml
     ;;
 
   "logs:dev")
-    docker compose -f compose.dev.yaml logs -f ubiquiti-automation-dev
+    docker compose -f compose.dev.yaml logs -f mikrotik-scraper-dev
     ;;
 
   "logs:prod")
-    docker compose -f compose.prod.yaml logs -f ubiquiti-automation-prod
+    docker compose -f compose.prod.yaml logs -f mikrotik-scraper-prod
     ;;
 
   "check:pre-commit")
     echo "Running all pre-commit checks..."
-    docker compose -f compose.dev.yaml exec ubiquiti-automation-dev pre-commit run --all-files
+    docker compose -f compose.dev.yaml exec mikrotik-scraper-dev pre-commit run --all-files
     ;;
 
   "help"|"")

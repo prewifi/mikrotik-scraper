@@ -7,11 +7,11 @@ networks:
         - subnet: 172.16.100.0/29
 
 services:
-  ubiquiti-automation-prod:
+  mikrotik-scraper-prod:
     build:
       context: .
       dockerfile: Dockerfile.prod
-    container_name: ubiquiti-automation-prod
+    container_name: mikrotik-scraper-prod
     restart: unless-stopped
     volumes:
       - ./inventory:/app/inventory:ro

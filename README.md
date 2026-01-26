@@ -12,12 +12,6 @@ Complete Python system for automated network inventory collection, analysis, and
   - Active PPPoE connections and secrets (`/ppp/active`, `/ppp/secret`)
   - System resources (`/system/resource`, `/system/identity`)
 
-- **Intelligent Analysis**: Automatically identifies:
-  - Backbone links between routers
-  - Point-to-Point (PTP) and Point-to-Multipoint (PTMP) links
-  - PPPoE client-server connections
-  - Configuration anomalies and issues
-
 - **Multi-format Export**: Saves inventory in:
   - JSON (for automated processing)
   - YAML (human-readable)
@@ -30,7 +24,6 @@ Complete Python system for automated network inventory collection, analysis, and
 The system has been successfully tested on:
 - RouterOS 6.42.1 (stable) on MikroTik RB2011iL
 - Complete collection of 24 interfaces, 11 neighbors, 6 PPPoE connections
-- Automatic topology and anomaly analysis
 - Verified JSON/YAML export
 
 ## Requirements
@@ -44,8 +37,8 @@ The system has been successfully tested on:
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/prewifi/ubiquiti-automation.git
-cd ubiquiti-automation
+git clone https://github.com/prewifi/mikrotik-scraper.git
+cd mikrotik-scraper
 ```
 
 ### 2. Install dependencies
@@ -123,7 +116,7 @@ python src/main.py -o /path/to/output
 ## Project Structure
 
 ```
-ubiquiti-automation/
+mikrotik-scraper/
 ├── src/
 │   ├── __init__.py
 │   ├── main.py              # Main entry point
@@ -257,9 +250,6 @@ To contribute to the project:
 4. Push to the branch (`git push origin feature/new-feature`)
 5. Open a Pull Request
 
-## License
-
-This project is distributed under the MIT license. See the `LICENSE` file for details.
 
 ## Acknowledgments
 

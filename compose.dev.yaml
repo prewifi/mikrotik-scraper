@@ -6,11 +6,11 @@ networks:
         - subnet: 172.16.200.0/29
 
 services:
-  ubiquiti-automation-dev:
+  mikrotik-scraper-dev:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    container_name: ubiquiti-automation-dev
+    container_name: mikrotik-scraper-dev
     volumes:
       - .:/app
       - .git:/app/.git

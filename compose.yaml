@@ -5,9 +5,9 @@ networks:
       config:
         - subnet: 172.16.200.0/29
 services:
-  ubiquiti-automation:
+  mikrotik-scraper:
     build: .
-    container_name: ubiquiti-automation
+    container_name: mikrotik-scraper
     volumes:
       - .:/app
     tty: true
