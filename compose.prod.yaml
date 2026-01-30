@@ -16,7 +16,7 @@ services:
     volumes:
       - ./inventory:/app/inventory:ro
       - ./config.yaml:/app/config.yaml:ro
-      - ubiquiti-logs:/app/logs
+      - mikrotik-logs:/app/logs
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=INFO
@@ -30,5 +30,5 @@ services:
       start_period: 5s
 
 volumes:
-  ubiquiti-logs:
+  mikrotik-logs:
     driver: local

@@ -23,7 +23,7 @@ from analyzer import NetworkAnalyzer
 from backup_manager import BackupManager
 from inventory import InventoryManager
 from mikrotik_client import MikrotikClient
-from models import Router, IPServiceConfig, UserConfig, UserGroupConfig, SyslogConfig, LoggingTopicConfig
+from models import Router, IPServiceConfig, UserConfig, UserGroupConfig, SyslogConfig, LoggingTopicConfig, SNMPConfig, SNMPCommunityConfig
 from sftp_client import SFTPClientManager
 
 console = Console()
@@ -1018,6 +1018,96 @@ def configure_syslog_all_routers(config: Dict) -> Tuple[int, int]:
     return successful, failed
 
 
+def configure_snmp_all_routers(config: Dict) -> Tuple[int, int]:
+    """
+    Configure SNMP on all routers defined in config.
+
+    Parameters:
+        config (Dict): Configuration dictionary.
+
+    Returns:
+        Tuple[int, int]: (successful, failed) counts.
+    """
+    snmp_config_dict = config.get("snmp", {})
+    if not snmp_config_dict:
+        console.print("[yellow]No SNMP configuration found in config[/yellow]")
+        return 0, 0
+
+    # Parse communities
+    communities = []
+    for comm_dict in snmp_config_dict.get("communities", []):
+        communities.append(SNMPCommunityConfig(**comm_dict))
+
+    # Create SNMPConfig
+    snmp_settings = SNMPConfig(
+        enabled=snmp_config_dict.get("enabled", True),
+        contact=snmp_config_dict.get("contact"),
+        location=snmp_config_dict.get("location"),
+        trap_community=snmp_config_dict.get("trap_community", "public"),
+        trap_version=snmp_config_dict.get("trap_version", 2),
+        communities=communities,
+    )
+
+    routers_config = config.get("routers", [])
+    if not routers_config:
+        console.print("[yellow]No routers defined in configuration[/yellow]")
+        return 0, 0
+
+    total_routers = len(routers_config)
+    successful = 0
+    failed = 0
+
+    console.print(f"\n[bold cyan]Configuring SNMP on {total_routers} router(s)...[/bold cyan]\n")
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeRemainingColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task(
+            "[cyan]Configuring SNMP...", total=total_routers
+        )
+
+        for router_conf in routers_config:
+            host = router_conf.get("ip") or router_conf.get("host")
+            username = router_conf.get("username", config.get("default_credentials", {}).get("username"))
+            password = router_conf.get("password", config.get("default_credentials", {}).get("password"))
+            port = router_conf.get("port", 8728)
+
+            progress.update(task, description=f"[cyan]Configuring SNMP on {host}...")
+
+            client = MikrotikClient(host, username, password, port)
+
+            try:
+                if client.connect():
+                    logger.info(f"Connected to {host} for SNMP configuration")
+
+                    # Get system identity for location
+                    system_identity = client.get_identity()
+
+                    # Configure SNMP (this also configures communities)
+                    client.configure_snmp(snmp_settings, system_identity=system_identity)
+
+                    successful += 1
+                    client.disconnect()
+                else:
+                    logger.error(f"Failed to connect to {host}")
+                    failed += 1
+            except Exception as e:
+                logger.error(f"Error configuring SNMP on {host}: {e}")
+                failed += 1
+
+            progress.advance(task)
+
+    console.print(f"\n[green]Successful: {successful}[/green]")
+    console.print(f"[red]Failed: {failed}[/red]")
+
+    return successful, failed
+
+
 def main():
     """Main entry point for the application."""
     parser = argparse.ArgumentParser(
@@ -1071,7 +1161,16 @@ def main():
         action="store_true",
         help="Only configure syslog (skip inventory and backup)",
     )
-
+    parser.add_argument(
+        "--configure-snmp",
+        action="store_true",
+        help="Configure SNMP on all routers",
+    )
+    parser.add_argument(
+        "--configure-snmp-only",
+        action="store_true",
+        help="Only configure SNMP (skip inventory and backup)",
+    )
 
     args = parser.parse_args()
 
@@ -1116,6 +1215,13 @@ def main():
                 "[bold cyan]Syslog configuration only mode...[/bold cyan]"
             )
             configure_syslog_all_routers(config)
+
+        elif args.configure_snmp_only:
+            # Configure SNMP only mode
+            console.print(
+                "[bold cyan]SNMP configuration only mode...[/bold cyan]"
+            )
+            configure_snmp_all_routers(config)
 
         elif args.backup_only:
             # Backup only mode - connect to routers just for backup, skip full data collection

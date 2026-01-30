@@ -14,7 +14,7 @@ services:
     volumes:
       - .:/app
       - .git:/app/.git
-      - ubiquiti-dev-cache:/app/.cache
+      - mikrotik-dev-cache:/app/.cache
     tty: true
     stdin_open: true
     environment:
@@ -27,5 +27,5 @@ services:
     #   - "8000:8000"
 
 volumes:
-  ubiquiti-dev-cache:
+  mikrotik-dev-cache:
     driver: local

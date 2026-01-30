@@ -240,6 +240,31 @@ class LoggingTopicConfig(BaseModel):
     disabled: bool = Field(default=False, description="Whether the logging rule is disabled")
 
 
+class SNMPCommunityConfig(BaseModel):
+    """Represents an SNMP community configuration."""
+
+    name: str = Field(..., description="Community name")
+    addresses: str = Field(default="0.0.0.0/0", description="Allowed addresses (CIDR notation)")
+    security: str = Field(default="none", description="Security level: none, authorized, private")
+    read_access: bool = Field(default=True, description="Allow read access")
+    write_access: bool = Field(default=False, description="Allow write access")
+    authentication_protocol: Optional[str] = Field(None, description="Auth protocol: MD5 or SHA1")
+    authentication_password: Optional[str] = Field(None, description="Authentication password")
+    encryption_protocol: Optional[str] = Field(None, description="Encryption protocol: DES or AES")
+    encryption_password: Optional[str] = Field(None, description="Encryption password")
+
+
+class SNMPConfig(BaseModel):
+    """Represents SNMP general configuration."""
+
+    enabled: bool = Field(default=True, description="Enable/disable SNMP")
+    contact: Optional[str] = Field(None, description="Contact information")
+    location: Optional[str] = Field(None, description="Location (uses system identity if not set)")
+    trap_community: str = Field(default="public", description="Trap community string")
+    trap_version: int = Field(default=2, description="Trap version: 1, 2, or 3")
+    communities: List[SNMPCommunityConfig] = Field(default_factory=list, description="SNMP communities")
+
+
 class NetworkInventory(BaseModel):
     """Complete network inventory with routers, links, and anomalies."""
 

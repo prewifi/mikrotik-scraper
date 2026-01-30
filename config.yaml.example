@@ -180,3 +180,46 @@ syslog:
     # Example of a disabled rule
     - topics: "debug"
       disabled: true
+
+# =============================================================================
+# SNMP Configuration
+# =============================================================================
+snmp:
+  enabled: true
+  # Contact information for the administrator
+  contact: "admin@example.com"
+  # Location will be set to the system identity if not specified
+  # location: "Server Room"
+  
+  # Trap settings
+  trap_community: "public"
+  trap_version: 2  # 1, 2, or 3
+  
+  # SNMP Communities
+  communities:
+    # Basic read-only community
+    - name: "public"
+      addresses: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+      security: "none"
+      read_access: true
+      write_access: false
+    
+    # Read-write community with authentication (SNMPv3)
+    - name: "private"
+      addresses: "10.13.252.0/27"
+      security: "authorized"
+      read_access: true
+      write_access: true
+      authentication_protocol: "SHA1"
+      authentication_password: "auth-password"
+    
+    # Full security with encryption (SNMPv3)
+    - name: "secure"
+      addresses: "10.13.252.0/27"
+      security: "private"
+      read_access: true
+      write_access: true
+      authentication_protocol: "SHA1"
+      authentication_password: "auth-password"
+      encryption_protocol: "AES"
+      encryption_password: "enc-password"

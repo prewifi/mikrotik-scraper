@@ -21,6 +21,8 @@ from models import (
     PPPoESecret,
     Router,
     Scheduler,
+    SNMPConfig,
+    SNMPCommunityConfig,
     SyslogConfig,
     SystemResource,
     UserConfig,
@@ -1248,4 +1250,127 @@ class MikrotikClient:
 
         except Exception as e:
             logger.error(f"Error configuring logging topics on {self.host}: {e}")
+            raise
+
+    def configure_snmp(self, config: SNMPConfig, system_identity: Optional[str] = None) -> bool:
+        """
+        Configure SNMP general settings on the router.
+
+        Parameters:
+            config (SNMPConfig): SNMP configuration settings.
+            system_identity (Optional[str]): System identity to use as location if not specified.
+
+        Returns:
+            bool: True if changes were made, False otherwise.
+        """
+        if not self.api:
+            logger.error("Not connected to router")
+            return False
+
+        try:
+            # Get current SNMP settings
+            snmp_resource = self.api.get_resource("/snmp")
+            current_settings = snmp_resource.get()
+            
+            # Configure communities FIRST (before setting trap-community)
+            # This is required because trap-community must reference an existing community
+            if config.communities:
+                self.configure_snmp_communities(config.communities)
+            
+            # Build properties to set
+            properties = {
+                "enabled": "yes" if config.enabled else "no",
+                "trap-version": str(config.trap_version),
+            }
+            
+            # Set trap-community only if we have communities configured
+            # For SNMPv3, trap-community must reference an existing community name
+            if config.trap_community:
+                properties["trap-community"] = config.trap_community
+            
+            # Set contact if provided
+            if config.contact:
+                properties["contact"] = config.contact
+            
+            # Set location (use system identity if not specified)
+            location = config.location if config.location else system_identity
+            if location:
+                properties["location"] = location
+            
+            logger.info(f"Configuring SNMP on {self.host}: enabled={config.enabled}, trap-version={config.trap_version}")
+            snmp_resource.set(**properties)
+            
+            return True
+
+        except Exception as e:
+            logger.error(f"Error configuring SNMP on {self.host}: {e}")
+            raise
+
+    def configure_snmp_communities(self, communities: List[SNMPCommunityConfig]) -> bool:
+        """
+        Configure SNMP communities on the router.
+
+        Parameters:
+            communities (List[SNMPCommunityConfig]): List of community configurations.
+
+        Returns:
+            bool: True if changes were made, False otherwise.
+        """
+        if not self.api:
+            logger.error("Not connected to router")
+            return False
+
+        try:
+            community_resource = self.api.get_resource("/snmp/community")
+            existing_communities = community_resource.get()
+            
+            changes_made = False
+
+            for comm_config in communities:
+                # Build properties for this community
+                properties = {
+                    "name": comm_config.name,
+                    "addresses": comm_config.addresses,
+                    "security": comm_config.security,
+                    "read-access": "yes" if comm_config.read_access else "no",
+                    "write-access": "yes" if comm_config.write_access else "no",
+                }
+                
+                # Add authentication if security requires it
+                if comm_config.security in ("authorized", "private"):
+                    if comm_config.authentication_protocol:
+                        properties["authentication-protocol"] = comm_config.authentication_protocol
+                    if comm_config.authentication_password:
+                        properties["authentication-password"] = comm_config.authentication_password
+                
+                # Add encryption if security is private
+                if comm_config.security == "private":
+                    if comm_config.encryption_protocol:
+                        properties["encryption-protocol"] = comm_config.encryption_protocol
+                    if comm_config.encryption_password:
+                        properties["encryption-password"] = comm_config.encryption_password
+                
+                # Check if community already exists
+                existing = next(
+                    (c for c in existing_communities if c.get("name") == comm_config.name),
+                    None
+                )
+                
+                if existing:
+                    # Update existing community
+                    community_id = existing.get(".id") or existing.get("id")
+                    if community_id:
+                        logger.info(f"Updating SNMP community '{comm_config.name}' on {self.host}")
+                        community_resource.set(id=community_id, **properties)
+                        changes_made = True
+                else:
+                    # Create new community
+                    logger.info(f"Creating SNMP community '{comm_config.name}' on {self.host}")
+                    community_resource.add(**properties)
+                    changes_made = True
+
+            return changes_made
+
+        except Exception as e:
+            logger.error(f"Error configuring SNMP communities on {self.host}: {e}")
             raise

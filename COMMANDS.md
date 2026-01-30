@@ -37,6 +37,12 @@ python3 src/main.py --configure-syslog       # Inventory + Configure syslog
 python3 src/main.py --configure-syslog-only  # Configure syslog only
 ```
 
+### SNMP Configuration
+```bash
+python3 src/main.py --configure-snmp       # Inventory + Configure SNMP
+python3 src/main.py --configure-snmp-only  # Configure SNMP only
+```
+
 ## Running with Docker
 
 ```bash
