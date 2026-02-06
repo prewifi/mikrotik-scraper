@@ -21,6 +21,27 @@ from models import (
 logger = logging.getLogger(__name__)
 
 
+def _safe_int(value: str | int | None, default: int = 0) -> int:
+    """
+    Safely convert a value to integer, handling non-numeric strings like 'auto'.
+
+    Parameters:
+        value: The value to convert (can be string, int, or None).
+        default: Default value if conversion fails (default: 0).
+
+    Returns:
+        int: The converted integer or default value.
+    """
+    if value is None:
+        return default
+    if isinstance(value, int):
+        return value
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
 class DataCollectorMixin:
     """Mixin class for data collection methods."""
 
@@ -40,11 +61,11 @@ class DataCollectorMixin:
                 return SystemResource(
                     uptime=res.get("uptime", ""),
                     version=res.get("version", ""),
-                    cpu_load=int(res.get("cpu-load", 0)),
-                    free_memory=int(res.get("free-memory", 0)),
-                    total_memory=int(res.get("total-memory", 0)),
-                    free_hdd_space=int(res.get("free-hdd-space", 0)),
-                    total_hdd_space=int(res.get("total-hdd-space", 0)),
+                    cpu_load=_safe_int(res.get("cpu-load", 0)),
+                    free_memory=_safe_int(res.get("free-memory", 0)),
+                    total_memory=_safe_int(res.get("total-memory", 0)),
+                    free_hdd_space=_safe_int(res.get("free-hdd-space", 0)),
+                    total_hdd_space=_safe_int(res.get("total-hdd-space", 0)),
                     architecture_name=res.get("architecture-name", ""),
                     board_name=res.get("board-name", ""),
                     platform=res.get("platform", ""),
@@ -77,9 +98,9 @@ class DataCollectorMixin:
                     mac_address=iface.get("mac-address", ""),
                     running=iface.get("running", "false") == "true",
                     disabled=iface.get("disabled", "false") == "true",
-                    mtu=int(iface.get("mtu", 0)) if iface.get("mtu") else 0,
-                    rx_byte=int(iface.get("rx-byte", 0)) if iface.get("rx-byte") else 0,
-                    tx_byte=int(iface.get("tx-byte", 0)) if iface.get("tx-byte") else 0,
+                    mtu=_safe_int(iface.get("mtu")),
+                    rx_byte=_safe_int(iface.get("rx-byte")),
+                    tx_byte=_safe_int(iface.get("tx-byte")),
                 )
                 interfaces.append(interface)
 
