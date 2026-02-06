@@ -263,6 +263,40 @@ def _run_backup_only_mode(config: dict) -> None:
     console.print(f"[red]Failed: {len(failed_routers)}[/red]")
 
 
+def _run_report_only_mode(args, config: dict) -> None:
+    """
+    Run report-only mode - collect data and generate markdown report only.
+
+    This mode connects to routers, collects basic system information,
+    and generates a consolidated markdown report without performing
+    backups or configuration changes.
+
+    Parameters:
+        args: Parsed CLI arguments.
+        config (dict): Configuration dictionary.
+    """
+    # Collect inventory
+    routers = collect_all_routers(config)
+
+    if not routers:
+        console.print("[red]No routers were successfully queried. Exiting.[/red]")
+        sys.exit(1)
+
+    # Create basic inventory (no analysis needed for simple report)
+    inventory = NetworkInventory(routers=routers, links=[], anomalies=[])
+
+    # Save only the markdown report
+    output_dir = args.output_dir or config.get("output", {}).get("directory", "output")
+    inventory_manager = InventoryManager(output_dir)
+
+    console.print(f"\n[bold cyan]Generating markdown report to: {output_dir}[/bold cyan]\n")
+
+    md_path = inventory_manager.save_routers_markdown(inventory)
+    console.print(f"[green]✓[/green] Router info markdown saved: {md_path}")
+
+    console.print("\n[bold green]✓ Report generation completed successfully![/bold green]\n")
+
+
 def _run_normal_mode(args, config: dict) -> None:
     """
     Run normal mode - collect inventory, optionally configure and backup.
@@ -389,6 +423,11 @@ def main() -> None:
             # Configure SNMP only mode
             console.print("[bold cyan]SNMP configuration only mode...[/bold cyan]")
             configure_snmp_all_routers(config)
+
+        elif args.generate_report_only:
+            # Generate report only mode - collect data, no backups, no configuration
+            console.print("[bold cyan]Generate report only mode...[/bold cyan]")
+            _run_report_only_mode(args, config)
 
         elif args.backup_only:
             # Backup only mode

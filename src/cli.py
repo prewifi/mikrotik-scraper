@@ -25,6 +25,7 @@ class CLIArgs(NamedTuple):
     configure_syslog_only: bool
     configure_snmp: bool
     configure_snmp_only: bool
+    generate_report_only: bool
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -124,6 +125,13 @@ def create_parser() -> argparse.ArgumentParser:
         help="Only configure SNMP (skip inventory and backup)",
     )
 
+    # Report generation options
+    parser.add_argument(
+        "--generate-report-only",
+        action="store_true",
+        help="Only collect data and generate markdown report (no backups, no configuration)",
+    )
+
     return parser
 
 
@@ -155,4 +163,5 @@ def parse_args(args: list[str] | None = None) -> CLIArgs:
         configure_syslog_only=parsed.configure_syslog_only,
         configure_snmp=parsed.configure_snmp,
         configure_snmp_only=parsed.configure_snmp_only,
+        generate_report_only=parsed.generate_report_only,
     )
