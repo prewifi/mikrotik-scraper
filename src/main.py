@@ -324,6 +324,10 @@ def _run_normal_mode(args, config: dict) -> None:
         summary_path = inventory_manager.save_summary(inventory)
         console.print(f"[green]✓[/green] Summary saved: {summary_path}")
 
+    # Always generate the consolidated router markdown report
+    md_path = inventory_manager.save_routers_markdown(inventory)
+    console.print(f"[green]✓[/green] Router info markdown saved: {md_path}")
+
     console.print("\n[bold green]✓ Inventory collection completed successfully![/bold green]\n")
 
     # Configure IP services if enabled or requested

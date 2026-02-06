@@ -329,6 +329,91 @@ class InventoryManager:
             logger.error(f"Error saving summary: {e}")
             raise
 
+    def save_routers_markdown(
+        self,
+        inventory: NetworkInventory,
+        filename: str | None = None,
+    ) -> Path:
+        """
+        Save router general information to a markdown file with a table.
+
+        Generates a consolidated markdown report containing a table with
+        System-Identity, RouterOS version, and RouterBoard model for all routers.
+
+        Parameters:
+            inventory (NetworkInventory): The inventory containing routers to document.
+            filename (str | None): Custom filename (default: routers_info.md).
+
+        Returns:
+            Path: Path to the saved markdown file.
+
+        Example:
+            >>> manager = InventoryManager("output")
+            >>> path = manager.save_routers_markdown(inventory)
+            >>> print(f"Report saved to: {path}")
+        """
+        if filename is None:
+            filename = "routers_info.md"
+
+        filepath = self.output_dir / filename
+
+        try:
+            lines: list[str] = []
+
+            # Header
+            lines.append("# Router Inventory Report\n")
+            lines.append(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            lines.append(f"**Total Routers:** {len(inventory.routers)}\n")
+            lines.append("")
+
+            # Table header
+            lines.append("## Router Information\n")
+            lines.append("| # | System Identity | IP Address | RouterOS Version | Board Model | Status |")
+            lines.append("|---|-----------------|------------|------------------|-------------|--------|")
+
+            # Table rows
+            for idx, router in enumerate(inventory.routers, start=1):
+                identity = router.identity or "N/A"
+                ip_address = router.ip_address or "N/A"
+
+                # Extract version and board from system_resource
+                if router.system_resource:
+                    version = router.system_resource.version or "N/A"
+                    board = router.system_resource.board_name or "N/A"
+                else:
+                    version = "N/A"
+                    board = "N/A"
+
+                status = "✅ OK" if router.connection_successful else "❌ Failed"
+
+                # Escape pipe characters in values to prevent table formatting issues
+                identity = identity.replace("|", "\\|")
+                board = board.replace("|", "\\|")
+
+                lines.append(f"| {idx} | {identity} | {ip_address} | {version} | {board} | {status} |")
+
+            lines.append("")
+
+            # Summary section
+            successful = sum(1 for r in inventory.routers if r.connection_successful)
+            failed = len(inventory.routers) - successful
+
+            lines.append("## Summary\n")
+            lines.append(f"- **Successful Connections:** {successful}")
+            lines.append(f"- **Failed Connections:** {failed}")
+            lines.append("")
+
+            # Write to file
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+
+            logger.info(f"Router markdown report saved to: {filepath}")
+            return filepath
+
+        except Exception as e:
+            logger.error(f"Error saving router markdown report: {e}")
+            raise
+
     def list_inventories(self, format: str = "json") -> list[Path]:
         """
         List all saved inventory files.
