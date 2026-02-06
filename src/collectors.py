@@ -211,3 +211,55 @@ def collect_all_routers(config: Dict) -> List[Router]:
     )
 
     return routers
+
+
+def collect_routers_minimal(config: Dict) -> List[Router]:
+    """
+    Collect minimal data from all routers (system info only).
+
+    This function only collects the system resource information needed
+    for generating the router report (identity, version, board model).
+    It skips interfaces, neighbors, PPPoE, schedulers for faster execution.
+
+    Parameters:
+        config (Dict): Configuration dictionary.
+
+    Returns:
+        List[Router]: List of router objects with minimal data.
+    """
+    default_creds = config.get("default_credentials", {})
+    router_configs = config.get("routers", [])
+    collection_config = config.get("collection", {})
+
+    parallel = collection_config.get("parallel", False)
+    max_workers = collection_config.get("max_workers", 5)
+
+    # Minimal collection options - only system resource
+    collection_options = {
+        "interfaces": False,
+        "ip_addresses": False,
+        "neighbors": False,
+        "pppoe": False,
+        "schedulers": False,
+        "system": True,  # Only fetch system info (version, board, etc.)
+        "wireless": False,
+    }
+
+    console.print(
+        f"\n[bold cyan]Collecting system info from {len(router_configs)} routers...[/bold cyan]\n"
+    )
+
+    if parallel:
+        routers = _collect_parallel(
+            router_configs, default_creds, collection_options, max_workers
+        )
+    else:
+        routers = _collect_sequential(
+            router_configs, default_creds, collection_options
+        )
+
+    console.print(
+        f"\n[bold green]Successfully collected data from {len(routers)}/{len(router_configs)} routers[/bold green]\n"
+    )
+
+    return routers

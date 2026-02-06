@@ -265,18 +265,20 @@ def _run_backup_only_mode(config: dict) -> None:
 
 def _run_report_only_mode(args, config: dict) -> None:
     """
-    Run report-only mode - collect data and generate markdown report only.
+    Run report-only mode - collect minimal data and generate markdown report only.
 
-    This mode connects to routers, collects basic system information,
-    and generates a consolidated markdown report without performing
-    backups or configuration changes.
+    This mode connects to routers, collects only system information (identity,
+    version, board model), and generates a consolidated markdown report without
+    performing backups or configuration changes.
 
     Parameters:
         args: Parsed CLI arguments.
         config (dict): Configuration dictionary.
     """
-    # Collect inventory
-    routers = collect_all_routers(config)
+    from collectors import collect_routers_minimal
+
+    # Collect only system info (minimal collection)
+    routers = collect_routers_minimal(config)
 
     if not routers:
         console.print("[red]No routers were successfully queried. Exiting.[/red]")
