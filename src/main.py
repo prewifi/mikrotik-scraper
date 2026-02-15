@@ -412,16 +412,63 @@ def _run_ospf_export_mode(args, config: dict) -> None:
 
         console.print()
 
-    # Save consolidated markdown report
+    # Save consolidated reports
     output_dir = args.output_dir or config.get("output", {}).get("directory", "output")
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
+
     md_file = output_path / "ospf_export.md"
-
     _save_ospf_markdown(all_ospf_data, md_file)
+    console.print(f"[green]✓[/green] OSPF markdown report saved: {md_file}")
 
-    console.print(f"[green]✓[/green] OSPF report saved: {md_file}")
+    json_file = output_path / "ospf_export.json"
+    _save_ospf_json(all_ospf_data, json_file)
+    console.print(f"[green]✓[/green] OSPF JSON report saved: {json_file}")
+
     console.print("\n[bold green]✓ OSPF export completed successfully![/bold green]\n")
+
+
+def _save_ospf_json(all_ospf_data: list[dict], filepath) -> None:
+    """
+    Save consolidated OSPF configuration to a JSON file.
+
+    Serializes all OSPF data using Pydantic model_dump for structured,
+    AI-readable output.
+
+    Parameters:
+        all_ospf_data (list[dict]): OSPF data collected from all routers.
+        filepath: Path to the output JSON file.
+    """
+    import json
+    from datetime import datetime
+
+    export = {
+        "generated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "total_routers": len(all_ospf_data),
+        "routers": [],
+    }
+
+    for data in all_ospf_data:
+        router_entry = {
+            "host": data["host"],
+            "identity": data["identity"],
+            "connection_successful": not data.get("error", False),
+        }
+
+        if data.get("error"):
+            router_entry["ospf"] = None
+        else:
+            router_entry["ospf"] = {
+                "instances": [inst.model_dump() for inst in data.get("instances", [])],
+                "areas": [area.model_dump() for area in data.get("areas", [])],
+                "networks": [net.model_dump() for net in data.get("networks", [])],
+                "interfaces": [iface.model_dump() for iface in data.get("interfaces", [])],
+            }
+
+        export["routers"].append(router_entry)
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(export, f, indent=2, ensure_ascii=False)
 
 
 def _save_ospf_markdown(all_ospf_data: list[dict], filepath) -> None:
