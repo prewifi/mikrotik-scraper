@@ -263,6 +263,262 @@ def _run_backup_only_mode(config: dict) -> None:
     console.print(f"[red]Failed: {len(failed_routers)}[/red]")
 
 
+def _run_ospf_export_mode(args, config: dict) -> None:
+    """
+    Run OSPF export mode - collect and display OSPF configuration from all routers.
+
+    Connects to each router, fetches OSPF instances, areas, networks, and
+    interfaces, then displays them in ordered Rich tables and saves a
+    consolidated markdown report. No LSA analysis is performed.
+
+    Parameters:
+        args: Parsed CLI arguments.
+        config (dict): Configuration dictionary.
+    """
+    from pathlib import Path
+
+    from rich.panel import Panel
+    from rich.table import Table
+
+    default_creds = config.get("default_credentials", {})
+    router_configs = config.get("routers", [])
+
+    console.print(
+        f"\n[bold cyan]Collecting OSPF configuration from {len(router_configs)} routers...[/bold cyan]\n"
+    )
+
+    all_ospf_data: list[dict] = []
+
+    for router_config in router_configs:
+        host = router_config.get("ip")
+        username = router_config.get("username", default_creds.get("username"))
+        password = router_config.get("password", default_creds.get("password"))
+        port = router_config.get("port", default_creds.get("port", 8728))
+        timeout = router_config.get("timeout", default_creds.get("timeout", 10))
+
+        client = MikrotikClient(host, username, password, port, timeout)
+
+        if not client.connect():
+            console.print(f"[red]✗[/red] Failed to connect to {host}")
+            all_ospf_data.append({"host": host, "identity": host, "error": True})
+            continue
+
+        identity = client.get_identity() or host
+        ospf_config = client.collect_ospf_config()
+        client.disconnect()
+
+        ospf_entry = {
+            "host": host,
+            "identity": identity,
+            "error": False,
+            **ospf_config,
+        }
+        all_ospf_data.append(ospf_entry)
+
+        # Display per-router OSPF config with Rich tables
+        console.print(
+            Panel(f"[bold white]{identity}[/bold white] ({host})", style="cyan")
+        )
+
+        # Instances table
+        instances = ospf_config["instances"]
+        if instances:
+            t = Table(title="OSPF Instances", show_lines=True)
+            t.add_column("Name", style="bold")
+            t.add_column("Router ID")
+            t.add_column("Redist. Connected")
+            t.add_column("Redist. Static")
+            t.add_column("Metric Default")
+            t.add_column("Disabled")
+            for inst in instances:
+                t.add_row(
+                    inst.name,
+                    inst.router_id or "-",
+                    inst.redistribute_connected or "-",
+                    inst.redistribute_static or "-",
+                    inst.metric_default or "-",
+                    "Yes" if inst.disabled else "No",
+                )
+            console.print(t)
+        else:
+            console.print("[dim]  No OSPF instances configured[/dim]")
+
+        # Areas table
+        areas = ospf_config["areas"]
+        if areas:
+            t = Table(title="OSPF Areas", show_lines=True)
+            t.add_column("Name", style="bold")
+            t.add_column("Area ID")
+            t.add_column("Instance")
+            t.add_column("Type")
+            t.add_column("Disabled")
+            for area in sorted(areas, key=lambda a: a.area_id):
+                t.add_row(
+                    area.name,
+                    area.area_id,
+                    area.instance or "-",
+                    area.area_type or "default",
+                    "Yes" if area.disabled else "No",
+                )
+            console.print(t)
+        else:
+            console.print("[dim]  No OSPF areas configured[/dim]")
+
+        # Networks table
+        networks = ospf_config["networks"]
+        if networks:
+            t = Table(title="OSPF Networks", show_lines=True)
+            t.add_column("Network", style="bold")
+            t.add_column("Area")
+            t.add_column("Disabled")
+            t.add_column("Comment")
+            for net in sorted(networks, key=lambda n: n.network):
+                t.add_row(
+                    net.network,
+                    net.area or "-",
+                    "Yes" if net.disabled else "No",
+                    net.comment or "-",
+                )
+            console.print(t)
+        else:
+            console.print("[dim]  No OSPF networks configured[/dim]")
+
+        # Interfaces table
+        ospf_ifaces = ospf_config["interfaces"]
+        if ospf_ifaces:
+            t = Table(title="OSPF Interfaces", show_lines=True)
+            t.add_column("Interface", style="bold")
+            t.add_column("Area")
+            t.add_column("Network Type")
+            t.add_column("Cost")
+            t.add_column("Priority")
+            t.add_column("Auth")
+            t.add_column("Passive")
+            t.add_column("Disabled")
+            for iface in sorted(ospf_ifaces, key=lambda i: i.interface):
+                t.add_row(
+                    iface.interface,
+                    iface.area or "-",
+                    iface.network_type or "-",
+                    iface.cost or "-",
+                    iface.priority or "-",
+                    iface.authentication or "none",
+                    "Yes" if iface.passive else "No",
+                    "Yes" if iface.disabled else "No",
+                )
+            console.print(t)
+        else:
+            console.print("[dim]  No OSPF interfaces configured[/dim]")
+
+        console.print()
+
+    # Save consolidated markdown report
+    output_dir = args.output_dir or config.get("output", {}).get("directory", "output")
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    md_file = output_path / "ospf_export.md"
+
+    _save_ospf_markdown(all_ospf_data, md_file)
+
+    console.print(f"[green]✓[/green] OSPF report saved: {md_file}")
+    console.print("\n[bold green]✓ OSPF export completed successfully![/bold green]\n")
+
+
+def _save_ospf_markdown(all_ospf_data: list[dict], filepath) -> None:
+    """
+    Save consolidated OSPF configuration to a markdown file.
+
+    Parameters:
+        all_ospf_data (list[dict]): OSPF data collected from all routers.
+        filepath: Path to the output markdown file.
+    """
+    from datetime import datetime
+
+    lines: list[str] = []
+    lines.append("# OSPF Configuration Export\n")
+    lines.append(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    lines.append(f"**Total Routers:** {len(all_ospf_data)}\n")
+    lines.append("---\n")
+
+    for data in all_ospf_data:
+        identity = data["identity"]
+        host = data["host"]
+        lines.append(f"## {identity} ({host})\n")
+
+        if data.get("error"):
+            lines.append("> ⚠️ Connection failed\n")
+            lines.append("---\n")
+            continue
+
+        # Instances
+        instances = data.get("instances", [])
+        lines.append("### Instances\n")
+        if instances:
+            lines.append("| Name | Router ID | Redist. Connected | Redist. Static | Metric Default | Disabled |")
+            lines.append("|------|-----------|-------------------|----------------|----------------|----------|")
+            for inst in instances:
+                lines.append(
+                    f"| {inst.name} | {inst.router_id or '-'} | "
+                    f"{inst.redistribute_connected or '-'} | {inst.redistribute_static or '-'} | "
+                    f"{inst.metric_default or '-'} | {'Yes' if inst.disabled else 'No'} |"
+                )
+        else:
+            lines.append("_No instances configured_\n")
+        lines.append("")
+
+        # Areas
+        areas = data.get("areas", [])
+        lines.append("### Areas\n")
+        if areas:
+            lines.append("| Name | Area ID | Instance | Type | Disabled |")
+            lines.append("|------|---------|----------|------|----------|")
+            for area in sorted(areas, key=lambda a: a.area_id):
+                lines.append(
+                    f"| {area.name} | {area.area_id} | {area.instance or '-'} | "
+                    f"{area.area_type or 'default'} | {'Yes' if area.disabled else 'No'} |"
+                )
+        else:
+            lines.append("_No areas configured_\n")
+        lines.append("")
+
+        # Networks
+        networks = data.get("networks", [])
+        lines.append("### Networks\n")
+        if networks:
+            lines.append("| Network | Area | Disabled | Comment |")
+            lines.append("|---------|------|----------|---------|")
+            for net in sorted(networks, key=lambda n: n.network):
+                lines.append(
+                    f"| {net.network} | {net.area or '-'} | "
+                    f"{'Yes' if net.disabled else 'No'} | {net.comment or '-'} |"
+                )
+        else:
+            lines.append("_No networks configured_\n")
+        lines.append("")
+
+        # Interfaces
+        ospf_ifaces = data.get("interfaces", [])
+        lines.append("### Interfaces\n")
+        if ospf_ifaces:
+            lines.append("| Interface | Area | Network Type | Cost | Priority | Auth | Passive | Disabled |")
+            lines.append("|-----------|------|--------------|------|----------|------|---------|----------|")
+            for iface in sorted(ospf_ifaces, key=lambda i: i.interface):
+                lines.append(
+                    f"| {iface.interface} | {iface.area or '-'} | "
+                    f"{iface.network_type or '-'} | {iface.cost or '-'} | "
+                    f"{iface.priority or '-'} | {iface.authentication or 'none'} | "
+                    f"{'Yes' if iface.passive else 'No'} | {'Yes' if iface.disabled else 'No'} |"
+                )
+        else:
+            lines.append("_No OSPF interfaces configured_\n")
+        lines.append("")
+
+        lines.append("---\n")
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+
 def _run_report_only_mode(args, config: dict) -> None:
     """
     Run report-only mode - collect minimal data and generate markdown report only.
@@ -430,6 +686,11 @@ def main() -> None:
             # Generate report only mode - collect data, no backups, no configuration
             console.print("[bold cyan]Generate report only mode...[/bold cyan]")
             _run_report_only_mode(args, config)
+
+        elif args.ospf_export:
+            # OSPF export mode
+            console.print("[bold cyan]OSPF configuration export mode...[/bold cyan]")
+            _run_ospf_export_mode(args, config)
 
         elif args.backup_only:
             # Backup only mode

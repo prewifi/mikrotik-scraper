@@ -265,6 +265,57 @@ class SNMPConfig(BaseModel):
     communities: List[SNMPCommunityConfig] = Field(default_factory=list, description="SNMP communities")
 
 
+# --- OSPF Models ---
+
+
+class OSPFInstance(BaseModel):
+    """Represents an OSPF routing instance."""
+
+    name: str = Field(..., description="Instance name")
+    router_id: Optional[str] = Field(None, description="Router ID")
+    redistribute_connected: Optional[str] = Field(None, description="Redistribute connected routes")
+    redistribute_static: Optional[str] = Field(None, description="Redistribute static routes")
+    redistribute_other_ospf: Optional[str] = Field(None, description="Redistribute other OSPF")
+    metric_default: Optional[str] = Field(None, description="Default metric")
+    disabled: bool = Field(default=False, description="Whether the instance is disabled")
+    comment: Optional[str] = Field(None, description="Optional comment")
+
+
+class OSPFArea(BaseModel):
+    """Represents an OSPF area."""
+
+    name: str = Field(..., description="Area name/identifier")
+    area_id: str = Field(default="0.0.0.0", description="Area ID (e.g., 0.0.0.0)")
+    instance: Optional[str] = Field(None, description="Associated OSPF instance")
+    area_type: Optional[str] = Field(None, description="Area type (default, stub, nssa)")
+    disabled: bool = Field(default=False, description="Whether the area is disabled")
+    comment: Optional[str] = Field(None, description="Optional comment")
+
+
+class OSPFNetwork(BaseModel):
+    """Represents an OSPF network advertisement."""
+
+    network: str = Field(..., description="Network address with CIDR (e.g., 10.0.0.0/24)")
+    area: Optional[str] = Field(None, description="Associated area name")
+    disabled: bool = Field(default=False, description="Whether the network is disabled")
+    comment: Optional[str] = Field(None, description="Optional comment")
+
+
+class OSPFInterface(BaseModel):
+    """Represents an OSPF interface configuration."""
+
+    interface: str = Field(..., description="Interface name")
+    network_type: Optional[str] = Field(None, description="Network type (broadcast, point-to-point, etc.)")
+    cost: Optional[str] = Field(None, description="Interface cost")
+    priority: Optional[str] = Field(None, description="Router priority")
+    authentication: Optional[str] = Field(None, description="Authentication type (none, simple, md5)")
+    instance_id: Optional[str] = Field(None, description="Instance ID")
+    area: Optional[str] = Field(None, description="Associated area")
+    passive: bool = Field(default=False, description="Whether the interface is passive")
+    disabled: bool = Field(default=False, description="Whether the interface is disabled")
+    comment: Optional[str] = Field(None, description="Optional comment")
+
+
 class NetworkInventory(BaseModel):
     """Complete network inventory with routers, links, and anomalies."""
 

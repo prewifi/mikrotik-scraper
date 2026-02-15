@@ -9,9 +9,16 @@ from mikrotik.backup_ops import BackupOpsMixin
 from mikrotik.client import MikrotikClientBase
 from mikrotik.config_ops import ConfigOpsMixin
 from mikrotik.data_collector import DataCollectorMixin
+from mikrotik.ospf_collector import OSPFCollectorMixin
 
 
-class MikrotikClient(MikrotikClientBase, DataCollectorMixin, BackupOpsMixin, ConfigOpsMixin):
+class MikrotikClient(
+    MikrotikClientBase,
+    DataCollectorMixin,
+    BackupOpsMixin,
+    ConfigOpsMixin,
+    OSPFCollectorMixin,
+):
     """
     Complete Mikrotik RouterOS API client.
 
@@ -20,6 +27,7 @@ class MikrotikClient(MikrotikClientBase, DataCollectorMixin, BackupOpsMixin, Con
     - DataCollectorMixin: Data collection methods
     - BackupOpsMixin: Backup and export operations
     - ConfigOpsMixin: Configuration operations (IP services, users, syslog, SNMP)
+    - OSPFCollectorMixin: OSPF configuration collection
 
     Example usage:
         client = MikrotikClient("192.168.1.1", "admin", "password")
@@ -39,4 +47,6 @@ __all__ = [
     "DataCollectorMixin",
     "BackupOpsMixin",
     "ConfigOpsMixin",
+    "OSPFCollectorMixin",
 ]
+
