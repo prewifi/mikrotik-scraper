@@ -65,7 +65,6 @@ def _build_router_id_map(ospf_data: dict) -> Dict[str, dict]:
         ospf = router["ospf"]
         instances = ospf.get("instances", [])
 
-        # Use router_id from first instance
         router_id = None
         for inst in instances:
             if inst.get("router_id"):
@@ -75,17 +74,13 @@ def _build_router_id_map(ospf_data: dict) -> Dict[str, dict]:
         if not router_id:
             router_id = router["host"]
 
-        # Collect areas (excluding backbone for display)
         areas = set()
         for area in ospf.get("areas", []):
             area_name = area.get("name", "")
             if area_name and area_name != "backbone":
                 areas.add(area_name)
 
-        # Count active neighbors
         neighbor_count = len(ospf.get("neighbors", []))
-
-        # Count active interfaces
         iface_count = len([
             i for i in ospf.get("interfaces", []) if not i.get("disabled")
         ])
@@ -121,13 +116,6 @@ def generate_ospf_map(json_path: str, output_path: str) -> str:
     Uses a two-pass approach:
       Pass 1: Add all nodes (known routers + external neighbors)
       Pass 2: Add all edges from neighbor adjacencies
-
-    Parameters:
-        json_path (str): Path to the ospf_export.json file.
-        output_path (str): Path for the output HTML file.
-
-    Returns:
-        str: Path to the generated HTML file.
     """
     with open(json_path, "r", encoding="utf-8") as f:
         ospf_data = json.load(f)
@@ -135,63 +123,26 @@ def generate_ospf_map(json_path: str, output_path: str) -> str:
     rid_map = _build_router_id_map(ospf_data)
     area_color_map: Dict[str, str] = {}
 
-    # Create pyvis network
+    # Create pyvis network — NO select_menu/filter_menu (they break the layout)
     net = Network(
         height="100vh",
         width="100%",
         bgcolor="#1a1a2e",
         font_color="#e0e0e0",
         directed=False,
-        select_menu=True,
-        filter_menu=True,
+        select_menu=False,
+        filter_menu=False,
     )
 
-    # Physics layout for readability
-    net.set_options("""
-    {
-        "physics": {
-            "barnesHut": {
-                "gravitationalConstant": -8000,
-                "centralGravity": 0.3,
-                "springLength": 200,
-                "springConstant": 0.04,
-                "damping": 0.09,
-                "avoidOverlap": 0.5
-            },
-            "stabilization": {
-                "enabled": true,
-                "iterations": 250,
-                "updateInterval": 25
-            }
-        },
-        "nodes": {
-            "borderWidth": 2,
-            "shadow": true,
-            "font": {
-                "size": 14,
-                "face": "Inter, Roboto, sans-serif"
-            }
-        },
-        "edges": {
-            "smooth": {
-                "type": "continuous"
-            },
-            "shadow": true,
-            "font": {
-                "size": 10,
-                "align": "middle",
-                "strokeWidth": 3,
-                "strokeColor": "#1a1a2e"
-            }
-        },
-        "interaction": {
-            "hover": true,
-            "tooltipDelay": 200,
-            "navigationButtons": true,
-            "keyboard": true
-        }
-    }
-    """)
+    # Configure physics and interaction via Barnes-Hut algorithm
+    net.barnes_hut(
+        gravity=-8000,
+        central_gravity=0.3,
+        spring_length=200,
+        spring_strength=0.04,
+        damping=0.09,
+        overlap=0.5,
+    )
 
     # ================================================================
     #  PASS 1: Add ALL nodes first (pyvis requires nodes before edges)
@@ -201,7 +152,6 @@ def generate_ospf_map(json_path: str, output_path: str) -> str:
     # 1a. Add known routers from our inventory
     for router in ospf_data.get("routers", []):
         if not router.get("connection_successful") or not router.get("ospf"):
-            # Failed-connection nodes
             node_id = router["host"]
             if node_id not in added_nodes:
                 net.add_node(
@@ -256,7 +206,6 @@ def generate_ospf_map(json_path: str, output_path: str) -> str:
             f"<b>Active Networks:</b><br>{net_str}"
         )
 
-        # Hub routers (≥3 neighbors) get diamond shape
         shape = "diamond" if len(neighbors) >= 3 else "dot"
 
         net.add_node(
@@ -266,7 +215,6 @@ def generate_ospf_map(json_path: str, output_path: str) -> str:
             shape=shape,
             title=tooltip,
             size=node_size,
-            group=primary_area,
         )
         added_nodes.add(router_id)
 
@@ -347,7 +295,6 @@ def generate_ospf_map(json_path: str, output_path: str) -> str:
                 color=edge_color,
                 title=edge_title,
                 width=edge_width,
-                label=f"c:{edge_cost}" if edge_cost else None,
             )
 
     # Build legend and save
@@ -413,7 +360,7 @@ def _inject_custom_html(html_path: str, legend_html: str, ospf_data: dict) -> No
     total_routers = ospf_data.get("total_routers", 0)
     generated = ospf_data.get("generated", "")
 
-    # Add title bar
+    # Title bar overlay
     title_bar = (
         '<div style="position:fixed;top:10px;left:10px;'
         'background:rgba(26,26,46,0.92);border:1px solid #333;border-radius:12px;'
@@ -429,7 +376,7 @@ def _inject_custom_html(html_path: str, legend_html: str, ospf_data: dict) -> No
     injection = legend_html + title_bar
     html = html.replace("</body>", injection + "\n</body>")
 
-    # Override body margin
+    # Full-viewport canvas with no margins
     html = html.replace(
         "<body>",
         '<body style="margin:0;padding:0;overflow:hidden;">'
