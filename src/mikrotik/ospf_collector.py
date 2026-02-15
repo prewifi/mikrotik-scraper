@@ -9,7 +9,7 @@ It outputs ordered, human-readable summaries without LSA analysis.
 import logging
 from typing import Dict, List, Optional, Tuple
 
-from models import OSPFArea, OSPFInstance, OSPFInterface, OSPFNetwork
+from models import OSPFArea, OSPFInstance, OSPFInterface, OSPFNeighbor, OSPFNetwork
 
 logger = logging.getLogger(__name__)
 
@@ -133,16 +133,49 @@ class OSPFCollectorMixin:
 
         return ospf_interfaces
 
+    def get_ospf_neighbors(self) -> List[OSPFNeighbor]:
+        """
+        Get all OSPF neighbor adjacencies.
+
+        Returns:
+            List[OSPFNeighbor]: List of OSPF neighbor objects.
+        """
+        neighbors: list[OSPFNeighbor] = []
+        try:
+            resource = self.api.get_resource("/routing/ospf/neighbor")
+            data = resource.get()
+
+            for item in data:
+                neighbor = OSPFNeighbor(
+                    instance=item.get("instance"),
+                    area=item.get("area"),
+                    address=item.get("address", ""),
+                    router_id=item.get("router-id"),
+                    state=item.get("state"),
+                    state_changes=item.get("state-changes"),
+                    interface=item.get("interface"),
+                    priority=item.get("priority"),
+                    adjacency=item.get("adjacency"),
+                )
+                neighbors.append(neighbor)
+
+        except Exception as e:
+            logger.error(f"Error getting OSPF neighbors: {e}")
+
+        return neighbors
+
     def collect_ospf_config(self) -> Dict:
         """
         Collect all OSPF configuration from the router.
 
         Returns:
-            Dict: Dictionary with keys 'instances', 'areas', 'networks', 'interfaces'.
+            Dict: Dictionary with keys 'instances', 'areas', 'networks', 'interfaces', 'neighbors'.
         """
         return {
             "instances": self.get_ospf_instances(),
             "areas": self.get_ospf_areas(),
             "networks": self.get_ospf_networks(),
             "interfaces": self.get_ospf_interfaces(),
+            "neighbors": self.get_ospf_neighbors(),
         }
+

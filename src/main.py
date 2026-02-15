@@ -410,6 +410,33 @@ def _run_ospf_export_mode(args, config: dict) -> None:
         else:
             console.print("[dim]  No OSPF interfaces configured[/dim]")
 
+        # Neighbors table
+        neighbors = ospf_config["neighbors"]
+        if neighbors:
+            t = Table(title="OSPF Neighbors", show_lines=True)
+            t.add_column("Address", style="bold")
+            t.add_column("Router ID")
+            t.add_column("State")
+            t.add_column("Interface")
+            t.add_column("Area")
+            t.add_column("Instance")
+            t.add_column("Priority")
+            t.add_column("State Changes")
+            for neigh in sorted(neighbors, key=lambda n: n.address):
+                t.add_row(
+                    neigh.address,
+                    neigh.router_id or "-",
+                    neigh.state or "-",
+                    neigh.interface or "-",
+                    neigh.area or "-",
+                    neigh.instance or "-",
+                    neigh.priority or "-",
+                    neigh.state_changes or "-",
+                )
+            console.print(t)
+        else:
+            console.print("[dim]  No OSPF neighbors found[/dim]")
+
         console.print()
 
     # Save consolidated reports
@@ -463,6 +490,7 @@ def _save_ospf_json(all_ospf_data: list[dict], filepath) -> None:
                 "areas": [area.model_dump() for area in data.get("areas", [])],
                 "networks": [net.model_dump() for net in data.get("networks", [])],
                 "interfaces": [iface.model_dump() for iface in data.get("interfaces", [])],
+                "neighbors": [neigh.model_dump() for neigh in data.get("neighbors", [])],
             }
 
         export["routers"].append(router_entry)
@@ -558,6 +586,23 @@ def _save_ospf_markdown(all_ospf_data: list[dict], filepath) -> None:
                 )
         else:
             lines.append("_No OSPF interfaces configured_\n")
+        lines.append("")
+
+        # Neighbors
+        neighbors = data.get("neighbors", [])
+        lines.append("### Neighbors\n")
+        if neighbors:
+            lines.append("| Address | Router ID | State | Interface | Area | Instance | Priority | State Changes |")
+            lines.append("|---------|-----------|-------|-----------|------|----------|----------|---------------|")
+            for neigh in sorted(neighbors, key=lambda n: n.address):
+                lines.append(
+                    f"| {neigh.address} | {neigh.router_id or '-'} | "
+                    f"{neigh.state or '-'} | {neigh.interface or '-'} | "
+                    f"{neigh.area or '-'} | {neigh.instance or '-'} | "
+                    f"{neigh.priority or '-'} | {neigh.state_changes or '-'} |"
+                )
+        else:
+            lines.append("_No OSPF neighbors found_\n")
         lines.append("")
 
         lines.append("---\n")

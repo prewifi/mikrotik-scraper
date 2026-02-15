@@ -316,6 +316,20 @@ class OSPFInterface(BaseModel):
     comment: Optional[str] = Field(None, description="Optional comment")
 
 
+class OSPFNeighbor(BaseModel):
+    """Represents an OSPF neighbor adjacency."""
+
+    instance: Optional[str] = Field(None, description="OSPF instance name")
+    area: Optional[str] = Field(None, description="OSPF area")
+    address: str = Field(..., description="Neighbor IP address")
+    router_id: Optional[str] = Field(None, description="Neighbor router ID")
+    state: Optional[str] = Field(None, description="Adjacency state (Full, 2-Way, etc.)")
+    state_changes: Optional[str] = Field(None, description="Number of state changes")
+    interface: Optional[str] = Field(None, description="Local interface")
+    priority: Optional[str] = Field(None, description="Neighbor priority")
+    adjacency: Optional[str] = Field(None, description="Adjacency timeout")
+
+
 class NetworkInventory(BaseModel):
     """Complete network inventory with routers, links, and anomalies."""
 
