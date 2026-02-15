@@ -450,6 +450,13 @@ def _run_ospf_export_mode(args, config: dict) -> None:
     _save_ospf_json(all_ospf_data, json_file)
     console.print(f"[green]✓[/green] OSPF JSON report saved: {json_file}")
 
+    # Generate interactive HTML network map
+    from ospf_map import generate_ospf_map
+
+    map_file = output_path / "ospf_map.html"
+    generate_ospf_map(str(json_file), str(map_file))
+    console.print(f"[green]✓[/green] OSPF interactive map saved: {map_file}")
+
     console.print("\n[bold green]✓ OSPF export completed successfully![/bold green]\n")
 
 
