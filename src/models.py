@@ -320,7 +320,6 @@ class OSPFNeighbor(BaseModel):
     """Represents an OSPF neighbor adjacency."""
 
     instance: Optional[str] = Field(None, description="OSPF instance name")
-    area: Optional[str] = Field(None, description="OSPF area")
     address: str = Field(..., description="Neighbor IP address")
     router_id: Optional[str] = Field(None, description="Neighbor router ID")
     state: Optional[str] = Field(None, description="Adjacency state (Full, 2-Way, etc.)")

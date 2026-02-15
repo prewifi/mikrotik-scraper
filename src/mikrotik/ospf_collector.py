@@ -148,7 +148,6 @@ class OSPFCollectorMixin:
             for item in data:
                 neighbor = OSPFNeighbor(
                     instance=item.get("instance"),
-                    area=item.get("area"),
                     address=item.get("address", ""),
                     router_id=item.get("router-id"),
                     state=item.get("state"),

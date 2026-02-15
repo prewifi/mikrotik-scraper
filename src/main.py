@@ -418,7 +418,6 @@ def _run_ospf_export_mode(args, config: dict) -> None:
             t.add_column("Router ID")
             t.add_column("State")
             t.add_column("Interface")
-            t.add_column("Area")
             t.add_column("Instance")
             t.add_column("Priority")
             t.add_column("State Changes")
@@ -428,7 +427,6 @@ def _run_ospf_export_mode(args, config: dict) -> None:
                     neigh.router_id or "-",
                     neigh.state or "-",
                     neigh.interface or "-",
-                    neigh.area or "-",
                     neigh.instance or "-",
                     neigh.priority or "-",
                     neigh.state_changes or "-",
@@ -592,13 +590,13 @@ def _save_ospf_markdown(all_ospf_data: list[dict], filepath) -> None:
         neighbors = data.get("neighbors", [])
         lines.append("### Neighbors\n")
         if neighbors:
-            lines.append("| Address | Router ID | State | Interface | Area | Instance | Priority | State Changes |")
-            lines.append("|---------|-----------|-------|-----------|------|----------|----------|---------------|")
+            lines.append("| Address | Router ID | State | Interface | Instance | Priority | State Changes |")
+            lines.append("|---------|-----------|-------|-----------|----------|----------|---------------|")
             for neigh in sorted(neighbors, key=lambda n: n.address):
                 lines.append(
                     f"| {neigh.address} | {neigh.router_id or '-'} | "
                     f"{neigh.state or '-'} | {neigh.interface or '-'} | "
-                    f"{neigh.area or '-'} | {neigh.instance or '-'} | "
+                    f"{neigh.instance or '-'} | "
                     f"{neigh.priority or '-'} | {neigh.state_changes or '-'} |"
                 )
         else:
