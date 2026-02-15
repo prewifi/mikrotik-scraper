@@ -265,11 +265,11 @@ def _run_backup_only_mode(config: dict) -> None:
 
 def _run_ospf_export_mode(args, config: dict) -> None:
     """
-    Run OSPF export mode - collect and display OSPF configuration from all routers.
+    Run OSPF export mode - collect OSPF configuration from all routers.
 
-    Connects to each router, fetches OSPF instances, areas, networks, and
-    interfaces, then displays them in ordered Rich tables and saves a
-    consolidated markdown report. No LSA analysis is performed.
+    Connects to each router, fetches OSPF instances, areas, networks,
+    interfaces, and neighbors. Shows a compact progress line per router
+    and a final summary. All data is saved to MD, JSON, and HTML map files.
 
     Parameters:
         args: Parsed CLI arguments.
@@ -277,19 +277,20 @@ def _run_ospf_export_mode(args, config: dict) -> None:
     """
     from pathlib import Path
 
-    from rich.panel import Panel
-    from rich.table import Table
-
     default_creds = config.get("default_credentials", {})
     router_configs = config.get("routers", [])
+    total = len(router_configs)
 
     console.print(
-        f"\n[bold cyan]Collecting OSPF configuration from {len(router_configs)} routers...[/bold cyan]\n"
+        f"\n[bold cyan]📡 OSPF Export — collecting from {total} routers...[/bold cyan]\n"
     )
 
     all_ospf_data: list[dict] = []
+    success_count = 0
+    fail_count = 0
+    failed_hosts: list[str] = []
 
-    for router_config in router_configs:
+    for idx, router_config in enumerate(router_configs, 1):
         host = router_config.get("ip")
         username = router_config.get("username", default_creds.get("username"))
         password = router_config.get("password", default_creds.get("password"))
@@ -299,13 +300,25 @@ def _run_ospf_export_mode(args, config: dict) -> None:
         client = MikrotikClient(host, username, password, port, timeout)
 
         if not client.connect():
-            console.print(f"[red]✗[/red] Failed to connect to {host}")
+            console.print(
+                f"  [red]✗[/red] [{idx}/{total}] {host} — connection failed"
+            )
             all_ospf_data.append({"host": host, "identity": host, "error": True})
+            fail_count += 1
+            failed_hosts.append(host)
             continue
 
         identity = client.get_identity() or host
         ospf_config = client.collect_ospf_config()
         client.disconnect()
+
+        neighbors = ospf_config.get("neighbors", [])
+        interfaces = ospf_config.get("interfaces", [])
+
+        console.print(
+            f"  [green]✓[/green] [{idx}/{total}] {identity} ({host}) "
+            f"— {len(neighbors)} neighbors, {len(interfaces)} interfaces"
+        )
 
         ospf_entry = {
             "host": host,
@@ -314,150 +327,41 @@ def _run_ospf_export_mode(args, config: dict) -> None:
             **ospf_config,
         }
         all_ospf_data.append(ospf_entry)
-
-        # Display per-router OSPF config with Rich tables
-        console.print(
-            Panel(f"[bold white]{identity}[/bold white] ({host})", style="cyan")
-        )
-
-        # Instances table
-        instances = ospf_config["instances"]
-        if instances:
-            t = Table(title="OSPF Instances", show_lines=True)
-            t.add_column("Name", style="bold")
-            t.add_column("Router ID")
-            t.add_column("Redist. Connected")
-            t.add_column("Redist. Static")
-            t.add_column("Metric Default")
-            t.add_column("Disabled")
-            for inst in instances:
-                t.add_row(
-                    inst.name,
-                    inst.router_id or "-",
-                    inst.redistribute_connected or "-",
-                    inst.redistribute_static or "-",
-                    inst.metric_default or "-",
-                    "Yes" if inst.disabled else "No",
-                )
-            console.print(t)
-        else:
-            console.print("[dim]  No OSPF instances configured[/dim]")
-
-        # Areas table
-        areas = ospf_config["areas"]
-        if areas:
-            t = Table(title="OSPF Areas", show_lines=True)
-            t.add_column("Name", style="bold")
-            t.add_column("Area ID")
-            t.add_column("Instance")
-            t.add_column("Type")
-            t.add_column("Disabled")
-            for area in sorted(areas, key=lambda a: a.area_id):
-                t.add_row(
-                    area.name,
-                    area.area_id,
-                    area.instance or "-",
-                    area.area_type or "default",
-                    "Yes" if area.disabled else "No",
-                )
-            console.print(t)
-        else:
-            console.print("[dim]  No OSPF areas configured[/dim]")
-
-        # Networks table
-        networks = ospf_config["networks"]
-        if networks:
-            t = Table(title="OSPF Networks", show_lines=True)
-            t.add_column("Network", style="bold")
-            t.add_column("Area")
-            t.add_column("Disabled")
-            t.add_column("Comment")
-            for net in sorted(networks, key=lambda n: n.network):
-                t.add_row(
-                    net.network,
-                    net.area or "-",
-                    "Yes" if net.disabled else "No",
-                    net.comment or "-",
-                )
-            console.print(t)
-        else:
-            console.print("[dim]  No OSPF networks configured[/dim]")
-
-        # Interfaces table
-        ospf_ifaces = ospf_config["interfaces"]
-        if ospf_ifaces:
-            t = Table(title="OSPF Interfaces", show_lines=True)
-            t.add_column("Interface", style="bold")
-            t.add_column("Area")
-            t.add_column("Network Type")
-            t.add_column("Cost")
-            t.add_column("Priority")
-            t.add_column("Auth")
-            t.add_column("Passive")
-            t.add_column("Disabled")
-            for iface in sorted(ospf_ifaces, key=lambda i: i.interface):
-                t.add_row(
-                    iface.interface,
-                    iface.area or "-",
-                    iface.network_type or "-",
-                    iface.cost or "-",
-                    iface.priority or "-",
-                    iface.authentication or "none",
-                    "Yes" if iface.passive else "No",
-                    "Yes" if iface.disabled else "No",
-                )
-            console.print(t)
-        else:
-            console.print("[dim]  No OSPF interfaces configured[/dim]")
-
-        # Neighbors table
-        neighbors = ospf_config["neighbors"]
-        if neighbors:
-            t = Table(title="OSPF Neighbors", show_lines=True)
-            t.add_column("Address", style="bold")
-            t.add_column("Router ID")
-            t.add_column("State")
-            t.add_column("Interface")
-            t.add_column("Instance")
-            t.add_column("Priority")
-            t.add_column("State Changes")
-            for neigh in sorted(neighbors, key=lambda n: n.address):
-                t.add_row(
-                    neigh.address,
-                    neigh.router_id or "-",
-                    neigh.state or "-",
-                    neigh.interface or "-",
-                    neigh.instance or "-",
-                    neigh.priority or "-",
-                    neigh.state_changes or "-",
-                )
-            console.print(t)
-        else:
-            console.print("[dim]  No OSPF neighbors found[/dim]")
-
-        console.print()
+        success_count += 1
 
     # Save consolidated reports
     output_dir = args.output_dir or config.get("output", {}).get("directory", "output")
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
+    console.print()
+
     md_file = output_path / "ospf_export.md"
     _save_ospf_markdown(all_ospf_data, md_file)
-    console.print(f"[green]✓[/green] OSPF markdown report saved: {md_file}")
 
     json_file = output_path / "ospf_export.json"
     _save_ospf_json(all_ospf_data, json_file)
-    console.print(f"[green]✓[/green] OSPF JSON report saved: {json_file}")
 
     # Generate interactive HTML network map
     from ospf_map import generate_ospf_map
 
     map_file = output_path / "ospf_map.html"
     generate_ospf_map(str(json_file), str(map_file))
-    console.print(f"[green]✓[/green] OSPF interactive map saved: {map_file}")
 
-    console.print("\n[bold green]✓ OSPF export completed successfully![/bold green]\n")
+    # Final summary
+    console.print("[bold]─── Summary ───[/bold]")
+    console.print(f"  Routers analyzed: [bold]{success_count}[/bold]/{total}")
+    if fail_count:
+        console.print(f"  [red]Errors: {fail_count}[/red]")
+        for h in failed_hosts:
+            console.print(f"    [red]✗[/red] {h}")
+    else:
+        console.print("  [green]Errors: 0[/green]")
+    console.print()
+    console.print(f"  [green]✓[/green] {md_file}")
+    console.print(f"  [green]✓[/green] {json_file}")
+    console.print(f"  [green]✓[/green] {map_file}")
+    console.print("\n[bold green]✓ OSPF export completed![/bold green]\n")
 
 
 def _save_ospf_json(all_ospf_data: list[dict], filepath) -> None:
