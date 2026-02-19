@@ -330,22 +330,26 @@ def _run_ospf_export_mode(args, config: dict) -> None:
         success_count += 1
 
     # Save consolidated reports
+    from datetime import datetime
+
     output_dir = args.output_dir or config.get("output", {}).get("directory", "output")
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+
     console.print()
 
-    md_file = output_path / "ospf_export.md"
+    md_file = output_path / f"ospf_export_{ts}.md"
     _save_ospf_markdown(all_ospf_data, md_file)
 
-    json_file = output_path / "ospf_export.json"
+    json_file = output_path / f"ospf_export_{ts}.json"
     _save_ospf_json(all_ospf_data, json_file)
 
     # Generate interactive HTML network map
     from ospf_map import generate_ospf_map
 
-    map_file = output_path / "ospf_map.html"
+    map_file = output_path / f"ospf_map_{ts}.html"
     generate_ospf_map(str(json_file), str(map_file))
 
     # Final summary
