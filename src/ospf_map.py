@@ -138,6 +138,34 @@ def _build_link_address_map(ospf_data: dict) -> Dict[str, List[str]]:
     return {rid: sorted(addrs) for rid, addrs in link_addrs.items()}
 
 
+
+def _build_link_pair_map(ospf_data: dict) -> Dict[Tuple[str, str], str]:
+    """
+    Build (local_rid, neighbor_rid) -> neighbor_address mapping.
+
+    When router A lists router B as neighbor with address X,
+    X is B's link IP as seen from A's side.
+    So (A_rid, B_rid) -> X  means "B's IP toward A is X".
+    """
+    pair: Dict[Tuple[str, str], str] = {}
+    for router in ospf_data.get("routers", []):
+        if not router.get("connection_successful") or not router.get("ospf"):
+            continue
+        ospf = router["ospf"]
+        local_rid = None
+        for inst in ospf.get("instances", []):
+            if inst.get("router_id"):
+                local_rid = inst["router_id"]
+                break
+        if not local_rid:
+            local_rid = router["host"]
+        for neigh in ospf.get("neighbors", []):
+            neigh_rid = neigh.get("router_id", "")
+            addr = neigh.get("address", "")
+            if neigh_rid and addr:
+                pair[(local_rid, neigh_rid)] = addr
+    return pair
+
 def generate_ospf_map(json_path: str, output_path: str) -> str:
     """
     Generate an interactive HTML network map from an OSPF JSON export.
@@ -151,6 +179,7 @@ def generate_ospf_map(json_path: str, output_path: str) -> str:
 
     rid_map = _build_router_id_map(ospf_data)
     link_addr_map = _build_link_address_map(ospf_data)
+    link_pair_map = _build_link_pair_map(ospf_data)
     area_color_map: Dict[str, str] = {}
 
     # Create pyvis network — NO select_menu/filter_menu (they break the layout)
@@ -238,19 +267,9 @@ def generate_ospf_map(json_path: str, output_path: str) -> str:
 
         shape = "diamond" if len(neighbors) >= 3 else "dot"
 
-        # Use OSPF link IPs (as seen by neighbors) — more accurate than host IP
-        link_ips = link_addr_map.get(router_id, [])
-        if link_ips:
-            ip_line = "\n".join(f"IP:  {ip}" for ip in link_ips)
-        else:
-            # Fallback: show host/management IP
-            ip_line = f"IP:  {router['host']}"
-
         node_label = (
             f"{router['identity']}\n"
-            f"────────────\n"
-            f"RID: {router_id}\n"
-            f"{ip_line}"
+            f"{router_id}"
         )
 
         net.add_node(
@@ -334,12 +353,26 @@ def generate_ospf_map(json_path: str, output_path: str) -> str:
 
             edge_width = 2 if neigh.get("state") == "Full" else 1
 
+            # IPs at each end of the link:
+            #   neigh.address = neighbor's IP as seen from this router
+            #   link_pair_map[(neigh_rid, router_id)] = this router's IP as seen from neighbor
+            local_ip = link_pair_map.get((neigh_rid, router_id), "")
+            remote_ip = neigh.get("address", "")
+            if local_ip and remote_ip:
+                edge_label = f"{local_ip}\n{remote_ip}"
+            elif remote_ip:
+                edge_label = remote_ip
+            else:
+                edge_label = None
+
             net.add_edge(
                 router_id,
                 neigh_rid,
                 color=edge_color,
                 title=edge_title,
+                label=edge_label,
                 width=edge_width,
+                font={"size": 9, "color": "#b0b0b0", "align": "middle"},
             )
 
     # Build legend and save
