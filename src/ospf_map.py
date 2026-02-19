@@ -109,6 +109,35 @@ def _get_router_id(router: dict) -> str:
     return router["host"]
 
 
+def _build_link_address_map(ospf_data: dict) -> Dict[str, List[str]]:
+    """
+    Build a map of router_id -> list of link IP addresses.
+
+    Scans the neighbor entries of every router: when router A lists router B
+    as a neighbor with address X, X is the IP of B's link interface toward A.
+    This is more accurate than using router['host'] (management IP), which
+    often equals the router_id.
+
+    Returns:
+        Dict[str, List[str]]: router_id -> sorted list of unique link IPs
+    """
+    link_addrs: Dict[str, list] = {}
+
+    for router in ospf_data.get("routers", []):
+        if not router.get("connection_successful") or not router.get("ospf"):
+            continue
+        for neigh in router["ospf"].get("neighbors", []):
+            neigh_rid = neigh.get("router_id", "")
+            addr = neigh.get("address", "")
+            if neigh_rid and addr:
+                link_addrs.setdefault(neigh_rid, [])
+                if addr not in link_addrs[neigh_rid]:
+                    link_addrs[neigh_rid].append(addr)
+
+    # Sort each list for consistent display
+    return {rid: sorted(addrs) for rid, addrs in link_addrs.items()}
+
+
 def generate_ospf_map(json_path: str, output_path: str) -> str:
     """
     Generate an interactive HTML network map from an OSPF JSON export.
@@ -121,6 +150,7 @@ def generate_ospf_map(json_path: str, output_path: str) -> str:
         ospf_data = json.load(f)
 
     rid_map = _build_router_id_map(ospf_data)
+    link_addr_map = _build_link_address_map(ospf_data)
     area_color_map: Dict[str, str] = {}
 
     # Create pyvis network — NO select_menu/filter_menu (they break the layout)
@@ -208,11 +238,19 @@ def generate_ospf_map(json_path: str, output_path: str) -> str:
 
         shape = "diamond" if len(neighbors) >= 3 else "dot"
 
+        # Use OSPF link IPs (as seen by neighbors) — more accurate than host IP
+        link_ips = link_addr_map.get(router_id, [])
+        if link_ips:
+            ip_line = "\n".join(f"IP:  {ip}" for ip in link_ips)
+        else:
+            # Fallback: show host/management IP
+            ip_line = f"IP:  {router['host']}"
+
         node_label = (
             f"{router['identity']}\n"
             f"────────────\n"
             f"RID: {router_id}\n"
-            f"IP:  {router['host']}"
+            f"{ip_line}"
         )
 
         net.add_node(
