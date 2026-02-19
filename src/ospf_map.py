@@ -208,9 +208,11 @@ def generate_ospf_map(json_path: str, output_path: str) -> str:
 
         shape = "diamond" if len(neighbors) >= 3 else "dot"
 
+        node_label = f"{router['identity']}\n{router_id}\n{router['host']}"
+
         net.add_node(
             router_id,
-            label=router["identity"],
+            label=node_label,
             color=node_color,
             shape=shape,
             title=tooltip,
