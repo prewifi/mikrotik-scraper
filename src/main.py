@@ -346,6 +346,14 @@ def _run_ospf_export_mode(args, config: dict) -> None:
     json_file = output_path / f"ospf_export_{ts}.json"
     _save_ospf_json(all_ospf_data, json_file)
 
+    # Save individual JSON files
+    single_export_dir = output_path / f"ospf_single_exports_{ts}"
+    single_export_dir.mkdir(parents=True, exist_ok=True)
+    for data in all_ospf_data:
+        identity_safe = "".join([c if c.isalnum() or c in "-_." else "_" for c in data["identity"]])
+        single_file = single_export_dir / f"{identity_safe}_{data['host']}.json"
+        _save_ospf_json([data], single_file)
+
     # Generate interactive HTML network map
     from ospf_map import generate_ospf_map
 
@@ -364,6 +372,7 @@ def _run_ospf_export_mode(args, config: dict) -> None:
     console.print()
     console.print(f"  [green]✓[/green] {md_file}")
     console.print(f"  [green]✓[/green] {json_file}")
+    console.print(f"  [green]✓[/green] {single_export_dir}/ ({len(all_ospf_data)} files)")
     console.print(f"  [green]✓[/green] {map_file}")
     console.print("\n[bold green]✓ OSPF export completed![/bold green]\n")
 
