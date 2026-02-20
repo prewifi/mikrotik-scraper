@@ -96,7 +96,7 @@ class ConfigOpsMixin:
             for config in service_configs:
                 current = self.get_ip_service_by_name(config.service_name)
                 if current:
-                    original_values[config.service_name] = current.addresses
+                    original_values[config.service_name] = current.address
 
             # Create rollback scheduler if enabled
             if create_rollback and original_values:
