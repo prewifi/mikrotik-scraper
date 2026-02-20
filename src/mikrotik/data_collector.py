@@ -276,7 +276,6 @@ class DataCollectorMixin:
             ip_addresses = []
             neighbors = []
             pppoe_active = []
-            pppoe_secrets = []
             system_resource = None
             schedulers = []
 
@@ -293,7 +292,6 @@ class DataCollectorMixin:
 
             if collection_options.get("pppoe", True):
                 pppoe_active = self.get_pppoe_active()
-                pppoe_secrets = self.get_pppoe_secrets()
 
             if collection_options.get("system", True):
                 system_resource = self.get_system_resource()
@@ -310,7 +308,6 @@ class DataCollectorMixin:
                 ip_addresses=ip_addresses,
                 neighbors=neighbors,
                 pppoe_active=pppoe_active,
-                pppoe_secrets=pppoe_secrets,
                 system_resource=system_resource,
                 schedulers=schedulers,
             )

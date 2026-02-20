@@ -618,8 +618,8 @@ def _run_normal_mode(args, config: dict) -> None:
     if "json" in formats:
         console.print("[cyan]Saving JSON files per router...[/cyan]")
         for router in routers:
-            json_path = inventory_manager.save_router_json(router)
-            console.print(f"[green]✓[/green] JSON saved: {json_path}")
+            json_dir = inventory_manager.save_router_json(router)
+            console.print(f"[green]✓[/green] JSON files saved in: {json_dir}/")
 
     if "yaml" in formats:
         console.print("[cyan]Saving YAML files per router...[/cyan]")

@@ -76,38 +76,53 @@ class InventoryManager:
 
     def save_router_json(self, router: Router, filename: Optional[str] = None) -> Path:
         """
-        Save a single router's data to a JSON file in the router's stats directory.
+        Save a single router's data splitted into multiple JSON files in the router's stats directory.
 
         Parameters:
             router (Router): The router to save.
-            filename (Optional[str]): Custom filename (default: auto-generated).
+            filename (Optional[str]): Ignored in this split format, kept for API compatibility.
 
         Returns:
-            Path: Path to the saved file.
+            Path: Path to the router's stats directory.
         """
-        if filename is None:
-            # Generate filename with pattern: {RouterIdentity}_{YYYYMMDD}_{HHMMSS}.json
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            hostname = router.identity.replace(" ", "_").replace("/", "_").upper()
-            filename = f"{hostname}_{timestamp}.json"
+        date_str = datetime.now().strftime("%Y%m%d")
+        hostname = router.identity.replace(" ", "_").replace("/", "_").upper()
 
         # Save in router's stats directory
         stats_dir = self.get_router_stats_directory(router.identity)
-        filepath = stats_dir / filename
-
+        
         try:
-            # Create inventory with single router
-            inventory = NetworkInventory(routers=[router])
-            inventory_dict = inventory.model_dump(mode="json")
+            # We will save separate files for each topic
+            components = {
+                "system": router.system_resource,
+                "interfaces": router.interfaces,
+                "ipaddresses": router.ip_addresses,
+                "neighbors": router.neighbors,
+                "pppoeactive": router.pppoe_active,
+                "schedulers": router.schedulers,
+            }
 
-            with open(filepath, "w", encoding="utf-8") as f:
-                json.dump(inventory_dict, f, indent=2, ensure_ascii=False)
+            for comp_name, comp_data in components.items():
+                if comp_data is None:
+                    continue
+                
+                # Convert the data to dict
+                if isinstance(comp_data, list):
+                    dump_data = [item.model_dump(mode="json") for item in comp_data]
+                else:
+                    dump_data = comp_data.model_dump(mode="json")
+                
+                comp_filename = f"{date_str}-{hostname}-{comp_name}-info.json"
+                comp_filepath = stats_dir / comp_filename
 
-            logger.info(f"Router data saved to JSON: {filepath}")
-            return filepath
+                with open(comp_filepath, "w", encoding="utf-8") as f:
+                    json.dump(dump_data, f, indent=2, ensure_ascii=False)
+
+            logger.info(f"Router split data saved to directory: {stats_dir}")
+            return stats_dir
 
         except Exception as e:
-            logger.error(f"Error saving router data to JSON: {e}")
+            logger.error(f"Error saving router split data to JSON: {e}")
             raise
 
     def save_yaml(self, inventory: NetworkInventory, filename: Optional[str] = None) -> Path:
