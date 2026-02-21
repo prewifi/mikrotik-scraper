@@ -76,38 +76,65 @@ class InventoryManager:
 
     def save_router_json(self, router: Router, filename: Optional[str] = None) -> Path:
         """
-        Save a single router's data to a JSON file in the router's stats directory.
+        Save a single router's data splitted into multiple JSON files in the router's stats directory.
 
         Parameters:
             router (Router): The router to save.
-            filename (Optional[str]): Custom filename (default: auto-generated).
+            filename (Optional[str]): Ignored in this split format, kept for API compatibility.
 
         Returns:
-            Path: Path to the saved file.
+            Path: Path to the router's stats directory.
         """
-        if filename is None:
-            # Generate filename with pattern: {RouterIdentity}_{YYYYMMDD}_{HHMMSS}.json
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            hostname = router.identity.replace(" ", "_").replace("/", "_").upper()
-            filename = f"{hostname}_{timestamp}.json"
+        date_str = datetime.now().strftime("%Y%m%d")
+        hostname = router.identity.replace(" ", "_").replace("/", "_").upper()
 
         # Save in router's stats directory
         stats_dir = self.get_router_stats_directory(router.identity)
-        filepath = stats_dir / filename
-
+        
         try:
-            # Create inventory with single router
-            inventory = NetworkInventory(routers=[router])
-            inventory_dict = inventory.model_dump(mode="json")
+            # We will save separate files for each topic
+            components = {
+                "system": router.system_resource,
+                "interfaces": router.interfaces,
+                "ipaddresses": router.ip_addresses,
+                "neighbors": router.neighbors,
+                "pppoeactive": router.pppoe_active,
+                "schedulers": router.schedulers,
+                "ospf": router.ospf,
+            }
 
-            with open(filepath, "w", encoding="utf-8") as f:
-                json.dump(inventory_dict, f, indent=2, ensure_ascii=False)
+            for comp_name, comp_data in components.items():
+                if comp_data is None:
+                    continue
+                
+                # Convert the data to dict
+                if isinstance(comp_data, list):
+                    dump_data = [item.model_dump(mode="json") if hasattr(item, "model_dump") else item for item in comp_data]
+                elif hasattr(comp_data, "model_dump"):
+                    dump_data = comp_data.model_dump(mode="json")
+                elif isinstance(comp_data, dict):
+                    dump_data = {}
+                    for k, v in comp_data.items():
+                        if isinstance(v, list):
+                            dump_data[k] = [item.model_dump(mode="json") if hasattr(item, "model_dump") else item for item in v]
+                        elif hasattr(v, "model_dump"):
+                            dump_data[k] = v.model_dump(mode="json")
+                        else:
+                            dump_data[k] = v
+                else:
+                    dump_data = comp_data
+                
+                comp_filename = f"{date_str}-{hostname}-{comp_name}-info.json"
+                comp_filepath = stats_dir / comp_filename
 
-            logger.info(f"Router data saved to JSON: {filepath}")
-            return filepath
+                with open(comp_filepath, "w", encoding="utf-8") as f:
+                    json.dump(dump_data, f, indent=2, ensure_ascii=False)
+
+            logger.info(f"Router split data saved to directory: {stats_dir}")
+            return stats_dir
 
         except Exception as e:
-            logger.error(f"Error saving router data to JSON: {e}")
+            logger.error(f"Error saving router split data to JSON: {e}")
             raise
 
     def save_yaml(self, inventory: NetworkInventory, filename: Optional[str] = None) -> Path:
@@ -329,6 +356,91 @@ class InventoryManager:
             logger.error(f"Error saving summary: {e}")
             raise
 
+    def save_routers_markdown(
+        self,
+        inventory: NetworkInventory,
+        filename: str | None = None,
+    ) -> Path:
+        """
+        Save router general information to a markdown file with a table.
+
+        Generates a consolidated markdown report containing a table with
+        System-Identity, RouterOS version, and RouterBoard model for all routers.
+
+        Parameters:
+            inventory (NetworkInventory): The inventory containing routers to document.
+            filename (str | None): Custom filename (default: routers_info.md).
+
+        Returns:
+            Path: Path to the saved markdown file.
+
+        Example:
+            >>> manager = InventoryManager("output")
+            >>> path = manager.save_routers_markdown(inventory)
+            >>> print(f"Report saved to: {path}")
+        """
+        if filename is None:
+            filename = "routers_info.md"
+
+        filepath = self.output_dir / filename
+
+        try:
+            lines: list[str] = []
+
+            # Header
+            lines.append("# Router Inventory Report\n")
+            lines.append(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            lines.append(f"**Total Routers:** {len(inventory.routers)}\n")
+            lines.append("")
+
+            # Table header
+            lines.append("## Router Information\n")
+            lines.append("| # | System Identity | IP Address | RouterOS Version | Board Model | Status |")
+            lines.append("|---|-----------------|------------|------------------|-------------|--------|")
+
+            # Table rows
+            for idx, router in enumerate(inventory.routers, start=1):
+                identity = router.identity or "N/A"
+                ip_address = router.ip_address or "N/A"
+
+                # Extract version and board from system_resource
+                if router.system_resource:
+                    version = router.system_resource.version or "N/A"
+                    board = router.system_resource.board_name or "N/A"
+                else:
+                    version = "N/A"
+                    board = "N/A"
+
+                status = "✅ OK" if router.connection_successful else "❌ Failed"
+
+                # Escape pipe characters in values to prevent table formatting issues
+                identity = identity.replace("|", "\\|")
+                board = board.replace("|", "\\|")
+
+                lines.append(f"| {idx} | {identity} | {ip_address} | {version} | {board} | {status} |")
+
+            lines.append("")
+
+            # Summary section
+            successful = sum(1 for r in inventory.routers if r.connection_successful)
+            failed = len(inventory.routers) - successful
+
+            lines.append("## Summary\n")
+            lines.append(f"- **Successful Connections:** {successful}")
+            lines.append(f"- **Failed Connections:** {failed}")
+            lines.append("")
+
+            # Write to file
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+
+            logger.info(f"Router markdown report saved to: {filepath}")
+            return filepath
+
+        except Exception as e:
+            logger.error(f"Error saving router markdown report: {e}")
+            raise
+
     def list_inventories(self, format: str = "json") -> list[Path]:
         """
         List all saved inventory files.
@@ -395,12 +507,11 @@ class InventoryManager:
             Path: Path to the router's backup directory.
         """
         router_dir = self.get_router_directory(router_identity)
-        backup_dir = router_dir / "backups"
+        
+        router_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Router backup directory: {router_dir}")
 
-        backup_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Router backup directory: {backup_dir}")
-
-        return backup_dir
+        return router_dir
 
     def get_router_stats_directory(self, router_identity: str) -> Path:
         """
@@ -413,12 +524,11 @@ class InventoryManager:
             Path: Path to the router's stats directory.
         """
         router_dir = self.get_router_directory(router_identity)
-        stats_dir = router_dir / "stats"
+        
+        router_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Router stats directory: {router_dir}")
 
-        stats_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Router stats directory: {stats_dir}")
-
-        return stats_dir
+        return router_dir
 
     def cleanup_old_backups(
         self,

@@ -368,19 +368,16 @@ class BackupManager:
             router_identity (str): Router identity/hostname.
 
         Returns:
-            Path: Path to the router's backup directory (inventory/{ROUTER_NAME}/backups).
+            Path: Path to the router's backup directory (inventory/{ROUTER_NAME}).
         """
         # Sanitize router identity for use in path
         safe_identity = router_identity.replace(" ", "_").replace("/", "_").upper()
         router_dir = self.backup_dir / safe_identity
-        router_backup_dir = router_dir / "backups"
 
-        router_backup_dir.mkdir(parents=True, exist_ok=True)
-        logger.debug(f"Router backup directory: {router_backup_dir}")
+        router_dir.mkdir(parents=True, exist_ok=True)
+        logger.debug(f"Router backup directory: {router_dir}")
 
-        return router_backup_dir
-
-        return router_backup_dir
+        return router_dir
 
     def cleanup_old_backups(
         self,

@@ -9,8 +9,10 @@ Complete system for automated network inventory collection, analysis, backup, an
   - Network interfaces (`/interface`)
   - IP Neighbors (`/ip/neighbor`)
   - IP Addresses (`/ip/address`)
-  - Active PPPoE connections and secrets (`/ppp/active`, `/ppp/secret`)
+  - Active PPPoE connections (`/ppp/active`)
+  - OSPF configurations and neighbors (`/routing/ospf`)
   - System resources (`/system/resource`, `/system/identity`)
+- **Network Visualizations**: Generates interactive HTML canvas maps (via `pyvis`) representing the OSPF topology showing interfaces and neighbors.
 - **Automated Backups**: Creates and downloads backups (`.backup` and `.rsc`)
 - **Configuration Management**: 
   - Manage IP Services (api, ssh, www, etc.)
@@ -78,6 +80,13 @@ Once the container is running, you can execute commands using `docker exec`.
 
 ```bash
 docker exec mikrotik-scraper-prod python3 src/main.py
+```
+
+### Stats Only Collection (No Backups/Config)
+
+Quickly fetch stats across the network (including OSPF config and map generation) without running config pushes or waiting for `.backup` and `.rsc` file generation. 
+```bash
+docker exec mikrotik-scraper-prod python3 src/main.py --stats-only
 ```
 
 ### Backup Operations
