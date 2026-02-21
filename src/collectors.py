@@ -5,6 +5,7 @@ This module handles collecting data from routers, both sequentially and in paral
 """
 
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional, Tuple
 
@@ -46,13 +47,25 @@ def collect_router_data(
     Returns:
         Tuple[Router | None, str | None]: Router object and error message if any.
     """
-    client = MikrotikClient(ip, username, password, port, timeout)
-    router, error = client.collect_all_data(collection_options)
+    retry_attempts = int(collection_options.get("retry_attempts", 2)) if collection_options else 2
+    retry_delay = int(collection_options.get("retry_delay", 5)) if collection_options else 5
+    
+    attempts = retry_attempts + 1
+    last_error = None
 
-    if error:
-        return None, error
+    for attempt in range(attempts):
+        client = MikrotikClient(ip, username, password, port, timeout)
+        router, error = client.collect_all_data(collection_options)
 
-    return router, None
+        if not error:
+            return router, None
+            
+        last_error = error
+        if attempt < attempts - 1:
+            logger.warning(f"Attempt {attempt + 1}/{attempts} failed for {ip}: {error}. Retrying in {retry_delay}s...")
+            time.sleep(retry_delay)
+
+    return None, last_error
 
 
 def _collect_parallel(
@@ -192,6 +205,10 @@ def collect_all_routers(config: Dict) -> List[Router]:
 
     # Get collection options
     collection_options = collection_config.get("collect", {})
+    
+    # Inject retry configuration into options
+    collection_options["retry_attempts"] = collection_config.get("retry_attempts", 2)
+    collection_options["retry_delay"] = collection_config.get("retry_delay", 5)
 
     console.print(
         f"\n[bold cyan]Starting data collection from {len(router_configs)} routers...[/bold cyan]\n"
@@ -243,6 +260,8 @@ def collect_routers_minimal(config: Dict) -> List[Router]:
         "schedulers": False,
         "system": True,  # Only fetch system info (version, board, etc.)
         "wireless": False,
+        "retry_attempts": collection_config.get("retry_attempts", 2),
+        "retry_delay": collection_config.get("retry_delay", 5),
     }
 
     console.print(
