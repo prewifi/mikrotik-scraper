@@ -124,6 +124,19 @@ class Scheduler(BaseModel):
 
 
 
+class Route(BaseModel):
+    """Represents an IP route on a Mikrotik router."""
+
+    dst_address: str = Field(..., description="Destination address")
+    gateway: Optional[str] = Field(None, description="Gateway")
+    distance: Optional[str] = Field(None, description="Distance")
+    active: bool = Field(default=False, description="Whether route is active")
+    static: bool = Field(default=False, description="Whether route is static")
+    disabled: bool = Field(default=False, description="Whether route is disabled")
+    comment: Optional[str] = Field(None, description="Route comment")
+    routing_table: Optional[str] = Field(None, description="Routing table")
+
+
 class Router(BaseModel):
     """Represents a Mikrotik router with all its collected information."""
 
@@ -140,6 +153,7 @@ class Router(BaseModel):
     )
     pppoe_secrets: List[PPPoESecret] = Field(default_factory=list, description="PPPoE secrets")
     schedulers: List[Scheduler] = Field(default_factory=list, description="System schedulers")
+    routes: List[Route] = Field(default_factory=list, description="Static and dynamic routes")
     ospf: Optional[Dict] = Field(None, description="OSPF configuration")
 
     # Metadata

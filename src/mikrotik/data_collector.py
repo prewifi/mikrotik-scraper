@@ -14,6 +14,7 @@ from models import (
     PPPoEActive,
     PPPoESecret,
     Router,
+    Route,
     Scheduler,
     SystemResource,
 )
@@ -246,6 +247,36 @@ class DataCollectorMixin:
 
         return schedulers
 
+    def get_routes(self) -> List[Route]:
+        """
+        Get IP routes.
+
+        Returns:
+            List[Route]: List of route objects.
+        """
+        routes = []
+        try:
+            resource = self.api.get_resource("/ip/route")
+            data = resource.get()
+
+            for route_data in data:
+                route = Route(
+                    dst_address=route_data.get("dst-address", ""),
+                    gateway=route_data.get("gateway", ""),
+                    distance=route_data.get("distance", ""),
+                    active=route_data.get("active", "false") == "true",
+                    static=route_data.get("static", "false") == "true",
+                    disabled=route_data.get("disabled", "false") == "true",
+                    comment=route_data.get("comment", ""),
+                    routing_table=route_data.get("routing-table", route_data.get("routing-mark", "")),
+                )
+                routes.append(route)
+
+        except Exception as e:
+            logger.error(f"Error getting routes: {e}")
+
+        return routes
+
     def collect_all_data(
         self, collection_options: Optional[Dict] = None
     ) -> Tuple[Optional[Router], Optional[str]]:
@@ -278,6 +309,7 @@ class DataCollectorMixin:
             pppoe_active = []
             system_resource = None
             schedulers = []
+            routes = []
             ospf_config = None
 
             if collection_options.get("interfaces", True):
@@ -300,6 +332,9 @@ class DataCollectorMixin:
             if collection_options.get("schedulers", True):
                 schedulers = self.get_schedulers()
 
+            if collection_options.get("routes", True):
+                routes = self.get_routes()
+
             if collection_options.get("ospf", True):
                 ospf_config = self.collect_ospf_config()
 
@@ -314,6 +349,7 @@ class DataCollectorMixin:
                 pppoe_active=pppoe_active,
                 system_resource=system_resource,
                 schedulers=schedulers,
+                routes=routes,
                 ospf=ospf_config,
             )
 

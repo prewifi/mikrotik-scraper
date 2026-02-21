@@ -95,11 +95,12 @@ class InventoryManager:
             # We will save separate files for each topic
             components = {
                 "system": router.system_resource,
-                "interfaces": router.interfaces,
-                "ipaddresses": router.ip_addresses,
+                "interfaces": [iface for iface in router.interfaces if "pppoe" not in iface.name.lower() and "pppoe" not in iface.type.lower()],
+                "ipaddresses": [ip for ip in router.ip_addresses if "pppoe" not in ip.interface.lower()],
                 "neighbors": router.neighbors,
                 "pppoeactive": router.pppoe_active,
                 "schedulers": router.schedulers,
+                "staticroutes": [r for r in router.routes if r.static],
                 "ospf": router.ospf,
             }
 
