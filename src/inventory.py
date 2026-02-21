@@ -101,6 +101,7 @@ class InventoryManager:
                 "pppoeactive": router.pppoe_active,
                 "schedulers": router.schedulers,
                 "staticroutes": [r for r in router.routes if r.static],
+                "ippools": router.ip_pools,
                 "ospf": router.ospf,
             }
 

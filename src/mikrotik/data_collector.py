@@ -15,6 +15,7 @@ from models import (
     PPPoESecret,
     Router,
     Route,
+    IPPool,
     Scheduler,
     SystemResource,
 )
@@ -277,6 +278,31 @@ class DataCollectorMixin:
 
         return routes
 
+    def get_ip_pools(self) -> List[IPPool]:
+        """
+        Get IP address pools.
+
+        Returns:
+            List[IPPool]: List of IP pool objects.
+        """
+        pools = []
+        try:
+            resource = self.api.get_resource("/ip/pool")
+            data = resource.get()
+
+            for pool_data in data:
+                pool = IPPool(
+                    name=pool_data.get("name", ""),
+                    ranges=pool_data.get("ranges", ""),
+                    next_pool=pool_data.get("next-pool", ""),
+                )
+                pools.append(pool)
+
+        except Exception as e:
+            logger.error(f"Error getting IP pools: {e}")
+
+        return pools
+
     def collect_all_data(
         self, collection_options: Optional[Dict] = None
     ) -> Tuple[Optional[Router], Optional[str]]:
@@ -310,6 +336,7 @@ class DataCollectorMixin:
             system_resource = None
             schedulers = []
             routes = []
+            ip_pools = []
             ospf_config = None
 
             if collection_options.get("interfaces", True):
@@ -335,6 +362,9 @@ class DataCollectorMixin:
             if collection_options.get("routes", True):
                 routes = self.get_routes()
 
+            if collection_options.get("ip_pools", True):
+                ip_pools = self.get_ip_pools()
+
             if collection_options.get("ospf", True):
                 ospf_config = self.collect_ospf_config()
 
@@ -350,6 +380,7 @@ class DataCollectorMixin:
                 system_resource=system_resource,
                 schedulers=schedulers,
                 routes=routes,
+                ip_pools=ip_pools,
                 ospf=ospf_config,
             )
 

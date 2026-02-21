@@ -137,6 +137,14 @@ class Route(BaseModel):
     routing_table: Optional[str] = Field(None, description="Routing table")
 
 
+class IPPool(BaseModel):
+    """Represents an IP address pool on a Mikrotik router."""
+
+    name: str = Field(..., description="Pool name")
+    ranges: str = Field(..., description="IP address ranges")
+    next_pool: Optional[str] = Field(None, description="Next pool name")
+
+
 class Router(BaseModel):
     """Represents a Mikrotik router with all its collected information."""
 
@@ -154,6 +162,7 @@ class Router(BaseModel):
     pppoe_secrets: List[PPPoESecret] = Field(default_factory=list, description="PPPoE secrets")
     schedulers: List[Scheduler] = Field(default_factory=list, description="System schedulers")
     routes: List[Route] = Field(default_factory=list, description="Static and dynamic routes")
+    ip_pools: List[IPPool] = Field(default_factory=list, description="IP address pools")
     ospf: Optional[Dict] = Field(None, description="OSPF configuration")
 
     # Metadata
