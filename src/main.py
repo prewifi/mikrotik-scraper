@@ -263,20 +263,32 @@ def _run_backup_only_mode(config: dict) -> None:
     console.print(f"[red]Failed: {len(failed_routers)}[/red]")
 
 
-def _run_ospf_export_mode(args, config: dict) -> None:
+def _run_stats_only_mode(args, config: dict) -> None:
     """
-    Run OSPF export mode - collect OSPF configuration from all routers.
-
-    Connects to each router, fetches OSPF instances, areas, networks,
-    interfaces, and neighbors. Shows a compact progress line per router
-    and a final summary. All data is saved to MD, JSON, and HTML map files.
-
-    Parameters:
-        args: Parsed CLI arguments.
-        config (dict): Configuration dictionary.
+    Run stats-only mode - collect all available statistics including OSPF,
+    without applying any configuration or performing backups.
     """
     from pathlib import Path
 
+    # -- 1. Standard Stats Collection --
+    routers = collect_all_routers(config)
+    
+    if not routers:
+        console.print("[red]No routers were successfully queried. Exiting.[/red]")
+        return
+        
+    output_dir = args.output_dir or config.get("output", {}).get("directory", "output")
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    inventory_manager = InventoryManager(str(output_path))
+    
+    console.print(f"\n[bold cyan]Saving standard inventory to: {output_dir}[/bold cyan]\n")
+    console.print("[cyan]Saving JSON files per router...[/cyan]")
+    for router in routers:
+        json_dir = inventory_manager.save_router_json(router)
+        console.print(f"[green]✓[/green] JSON files saved in: {json_dir}/")
+
+    # -- 2. OSPF Specific Data Collection --
     default_creds = config.get("default_credentials", {})
     router_configs = config.get("routers", [])
     total = len(router_configs)
@@ -329,13 +341,8 @@ def _run_ospf_export_mode(args, config: dict) -> None:
         all_ospf_data.append(ospf_entry)
         success_count += 1
 
-    # Save consolidated reports
+    # Save consolidated OSPF reports
     from datetime import datetime
-
-    output_dir = args.output_dir or config.get("output", {}).get("directory", "output")
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     console.print()
@@ -346,7 +353,7 @@ def _run_ospf_export_mode(args, config: dict) -> None:
     json_file = output_path / f"ospf_export_{ts}.json"
     _save_ospf_json(all_ospf_data, json_file)
 
-    # Save individual JSON files
+    # Save individual OSPF JSON files
     date_str = datetime.now().strftime("%Y%m%d")
     for data in all_ospf_data:
         identity_safe = "".join([c if c.isalnum() or c in "-_." else "_" for c in data["identity"]])
@@ -357,7 +364,6 @@ def _run_ospf_export_mode(args, config: dict) -> None:
 
     # Generate interactive HTML network map
     from ospf_map import generate_ospf_map
-
     map_file = output_path / f"ospf_map_{ts}.html"
     generate_ospf_map(str(json_file), str(map_file))
 
@@ -375,7 +381,7 @@ def _run_ospf_export_mode(args, config: dict) -> None:
     console.print(f"  [green]✓[/green] {json_file}")
     console.print(f"  [green]✓[/green] {output_path}/<IDENTITY>/... ({len(all_ospf_data)} files)")
     console.print(f"  [green]✓[/green] {map_file}")
-    console.print("\n[bold green]✓ OSPF export completed![/bold green]\n")
+    console.print("\n[bold green]✓ Stats & OSPF export completed![/bold green]\n")
 
 
 def _save_ospf_json(all_ospf_data: list[dict], filepath) -> None:
@@ -702,10 +708,10 @@ def main() -> None:
             console.print("[bold cyan]Generate report only mode...[/bold cyan]")
             _run_report_only_mode(args, config)
 
-        elif args.ospf_export:
-            # OSPF export mode
-            console.print("[bold cyan]OSPF configuration export mode...[/bold cyan]")
-            _run_ospf_export_mode(args, config)
+        elif args.stats_only:
+            # Stats only mode
+            console.print("[bold cyan]Stats-only mode (Network Stats + OSPF)...[/bold cyan]")
+            _run_stats_only_mode(args, config)
 
         elif args.backup_only:
             # Backup only mode
