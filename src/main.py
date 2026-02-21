@@ -269,8 +269,10 @@ def _run_stats_only_mode(args, config: dict) -> None:
     without applying any configuration or performing backups.
     """
     from pathlib import Path
+    from datetime import datetime
+    from ospf_map import generate_ospf_map
 
-    # -- 1. Standard Stats Collection --
+    # -- 1. Standard Stats Collection (INCLUDES OSPF) --
     routers = collect_all_routers(config)
     
     if not routers:
@@ -288,63 +290,27 @@ def _run_stats_only_mode(args, config: dict) -> None:
         json_dir = inventory_manager.save_router_json(router)
         console.print(f"[green]✓[/green] JSON files saved in: {json_dir}/")
 
-    # -- 2. OSPF Specific Data Collection --
-    default_creds = config.get("default_credentials", {})
-    router_configs = config.get("routers", [])
-    total = len(router_configs)
-
-    console.print(
-        f"\n[bold cyan]📡 OSPF Export — collecting from {total} routers...[/bold cyan]\n"
-    )
-
+    # -- 2. Generate Consolidated OSPF Reports & Map --
     all_ospf_data: list[dict] = []
     success_count = 0
     fail_count = 0
-    failed_hosts: list[str] = []
+    failed_hosts = []
 
-    for idx, router_config in enumerate(router_configs, 1):
-        host = router_config.get("ip")
-        username = router_config.get("username", default_creds.get("username"))
-        password = router_config.get("password", default_creds.get("password"))
-        port = router_config.get("port", default_creds.get("port", 8728))
-        timeout = router_config.get("timeout", default_creds.get("timeout", 10))
-
-        client = MikrotikClient(host, username, password, port, timeout)
-
-        if not client.connect():
-            console.print(
-                f"  [red]✗[/red] [{idx}/{total}] {host} — connection failed"
-            )
-            all_ospf_data.append({"host": host, "identity": host, "error": True})
+    for router in routers:
+        if router.connection_successful and router.ospf:
+            ospf_entry = {
+                "host": router.ip_address,
+                "identity": router.identity,
+                "error": False,
+                **router.ospf,
+            }
+            all_ospf_data.append(ospf_entry)
+            success_count += 1
+        else:
             fail_count += 1
-            failed_hosts.append(host)
-            continue
+            failed_hosts.append(router.ip_address)
 
-        identity = client.get_identity() or host
-        ospf_config = client.collect_ospf_config()
-        client.disconnect()
-
-        neighbors = ospf_config.get("neighbors", [])
-        interfaces = ospf_config.get("interfaces", [])
-
-        console.print(
-            f"  [green]✓[/green] [{idx}/{total}] {identity} ({host}) "
-            f"— {len(neighbors)} neighbors, {len(interfaces)} interfaces"
-        )
-
-        ospf_entry = {
-            "host": host,
-            "identity": identity,
-            "error": False,
-            **ospf_config,
-        }
-        all_ospf_data.append(ospf_entry)
-        success_count += 1
-
-    # Save consolidated OSPF reports
-    from datetime import datetime
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-
     console.print()
 
     md_file = output_path / f"ospf_export_{ts}.md"
@@ -353,21 +319,11 @@ def _run_stats_only_mode(args, config: dict) -> None:
     json_file = output_path / f"ospf_export_{ts}.json"
     _save_ospf_json(all_ospf_data, json_file)
 
-    # Save individual OSPF JSON files
-    date_str = datetime.now().strftime("%Y%m%d")
-    for data in all_ospf_data:
-        identity_safe = "".join([c if c.isalnum() or c in "-_." else "_" for c in data["identity"]])
-        router_dir = output_path / identity_safe
-        router_dir.mkdir(parents=True, exist_ok=True)
-        single_file = router_dir / f"{date_str}-{identity_safe}-ospf-info.json"
-        _save_ospf_json([data], single_file)
-
-    # Generate interactive HTML network map
-    from ospf_map import generate_ospf_map
     map_file = output_path / f"ospf_map_{ts}.html"
     generate_ospf_map(str(json_file), str(map_file))
 
     # Final summary
+    total = len(routers)
     console.print("[bold]─── Summary ───[/bold]")
     console.print(f"  Routers analyzed: [bold]{success_count}[/bold]/{total}")
     if fail_count:
@@ -379,7 +335,9 @@ def _run_stats_only_mode(args, config: dict) -> None:
     console.print()
     console.print(f"  [green]✓[/green] {md_file}")
     console.print(f"  [green]✓[/green] {json_file}")
-    console.print(f"  [green]✓[/green] {output_path}/<IDENTITY>/... ({len(all_ospf_data)} files)")
+    for router in routers:
+        if router.connection_successful:
+            console.print(f"  [green]✓[/green] {output_path}/{router.identity}/... (split files)")
     console.print(f"  [green]✓[/green] {map_file}")
     console.print("\n[bold green]✓ Stats & OSPF export completed![/bold green]\n")
 

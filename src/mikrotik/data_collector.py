@@ -278,6 +278,7 @@ class DataCollectorMixin:
             pppoe_active = []
             system_resource = None
             schedulers = []
+            ospf_config = None
 
             if collection_options.get("interfaces", True):
                 interfaces = self.get_interfaces(
@@ -299,6 +300,9 @@ class DataCollectorMixin:
             if collection_options.get("schedulers", True):
                 schedulers = self.get_schedulers()
 
+            if collection_options.get("ospf", True):
+                ospf_config = self.collect_ospf_config()
+
             # Build router object
             router = Router(
                 ip_address=self.host,
@@ -310,6 +314,7 @@ class DataCollectorMixin:
                 pppoe_active=pppoe_active,
                 system_resource=system_resource,
                 schedulers=schedulers,
+                ospf=ospf_config,
             )
 
             return router, None

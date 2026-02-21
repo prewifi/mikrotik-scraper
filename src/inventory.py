@@ -100,6 +100,7 @@ class InventoryManager:
                 "neighbors": router.neighbors,
                 "pppoeactive": router.pppoe_active,
                 "schedulers": router.schedulers,
+                "ospf": router.ospf,
             }
 
             for comp_name, comp_data in components.items():
@@ -108,9 +109,20 @@ class InventoryManager:
                 
                 # Convert the data to dict
                 if isinstance(comp_data, list):
-                    dump_data = [item.model_dump(mode="json") for item in comp_data]
-                else:
+                    dump_data = [item.model_dump(mode="json") if hasattr(item, "model_dump") else item for item in comp_data]
+                elif hasattr(comp_data, "model_dump"):
                     dump_data = comp_data.model_dump(mode="json")
+                elif isinstance(comp_data, dict):
+                    dump_data = {}
+                    for k, v in comp_data.items():
+                        if isinstance(v, list):
+                            dump_data[k] = [item.model_dump(mode="json") if hasattr(item, "model_dump") else item for item in v]
+                        elif hasattr(v, "model_dump"):
+                            dump_data[k] = v.model_dump(mode="json")
+                        else:
+                            dump_data[k] = v
+                else:
+                    dump_data = comp_data
                 
                 comp_filename = f"{date_str}-{hostname}-{comp_name}-info.json"
                 comp_filepath = stats_dir / comp_filename
@@ -513,12 +525,11 @@ class InventoryManager:
             Path: Path to the router's stats directory.
         """
         router_dir = self.get_router_directory(router_identity)
-        stats_dir = router_dir / "stats"
+        
+        router_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Router stats directory: {router_dir}")
 
-        stats_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Router stats directory: {stats_dir}")
-
-        return stats_dir
+        return router_dir
 
     def cleanup_old_backups(
         self,

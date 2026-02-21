@@ -140,7 +140,7 @@ class Router(BaseModel):
     )
     pppoe_secrets: List[PPPoESecret] = Field(default_factory=list, description="PPPoE secrets")
     schedulers: List[Scheduler] = Field(default_factory=list, description="System schedulers")
-
+    ospf: Optional[Dict] = Field(None, description="OSPF configuration")
 
     # Metadata
     last_updated: datetime = Field(
