@@ -9,6 +9,7 @@ Inventory and automation system for MikroTik RouterBoards.
 python3 src/main.py
 python3 src/main.py -c config.yaml  # Specify configuration file
 python3 src/main.py -o output_dir    # Override output directory
+python3 src/main.py --stats-only     # Collect stats and OSPF (no backups or config)
 python3 src/main.py --json-only      # Save only in JSON format
 python3 src/main.py --yaml-only      # Save only in YAML format
 ```

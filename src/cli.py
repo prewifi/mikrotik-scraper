@@ -26,6 +26,7 @@ class CLIArgs(NamedTuple):
     configure_snmp: bool
     configure_snmp_only: bool
     generate_report_only: bool
+    stats_only: bool
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -132,6 +133,13 @@ def create_parser() -> argparse.ArgumentParser:
         help="Only collect data and generate markdown report (no backups, no configuration)",
     )
 
+    # Stats only mode (Network stats + OSPF)
+    parser.add_argument(
+        "--stats-only",
+        action="store_true",
+        help="Only collect all statistics including OSPF (no configuration or backups)",
+    )
+
     return parser
 
 
@@ -164,4 +172,5 @@ def parse_args(args: list[str] | None = None) -> CLIArgs:
         configure_snmp=parsed.configure_snmp,
         configure_snmp_only=parsed.configure_snmp_only,
         generate_report_only=parsed.generate_report_only,
+        stats_only=parsed.stats_only,
     )

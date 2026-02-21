@@ -263,6 +263,241 @@ def _run_backup_only_mode(config: dict) -> None:
     console.print(f"[red]Failed: {len(failed_routers)}[/red]")
 
 
+def _run_stats_only_mode(args, config: dict) -> None:
+    """
+    Run stats-only mode - collect all available statistics including OSPF,
+    without applying any configuration or performing backups.
+    """
+    from pathlib import Path
+    from datetime import datetime
+    from ospf_map import generate_ospf_map
+
+    # -- 1. Standard Stats Collection (INCLUDES OSPF) --
+    routers = collect_all_routers(config)
+    
+    if not routers:
+        console.print("[red]No routers were successfully queried. Exiting.[/red]")
+        return
+        
+    output_dir = args.output_dir or config.get("output", {}).get("directory", "output")
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    inventory_manager = InventoryManager(str(output_path))
+    
+    console.print(f"\n[bold cyan]Saving standard inventory to: {output_dir}[/bold cyan]\n")
+    console.print("[cyan]Saving JSON files per router...[/cyan]")
+    for router in routers:
+        json_dir = inventory_manager.save_router_json(router)
+        console.print(f"[green]✓[/green] JSON files saved in: {json_dir}/")
+
+    # -- 2. Generate Consolidated OSPF Reports & Map --
+    all_ospf_data: list[dict] = []
+    success_count = 0
+    fail_count = 0
+    failed_hosts = []
+
+    for router in routers:
+        if router.connection_successful and router.ospf:
+            ospf_entry = {
+                "host": router.ip_address,
+                "identity": router.identity,
+                "error": False,
+                **router.ospf,
+            }
+            all_ospf_data.append(ospf_entry)
+            success_count += 1
+        else:
+            fail_count += 1
+            failed_hosts.append(router.ip_address)
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    console.print()
+
+    md_file = output_path / f"ospf_export_{ts}.md"
+    _save_ospf_markdown(all_ospf_data, md_file)
+
+    json_file = output_path / f"ospf_export_{ts}.json"
+    _save_ospf_json(all_ospf_data, json_file)
+
+    map_file = output_path / f"ospf_map_{ts}.html"
+    generate_ospf_map(str(json_file), str(map_file))
+
+    # Final summary
+    total = len(routers)
+    console.print("[bold]─── Summary ───[/bold]")
+    console.print(f"  Routers analyzed: [bold]{success_count}[/bold]/{total}")
+    if fail_count:
+        console.print(f"  [red]Errors: {fail_count}[/red]")
+        for h in failed_hosts:
+            console.print(f"    [red]✗[/red] {h}")
+    else:
+        console.print("  [green]Errors: 0[/green]")
+    console.print()
+    console.print(f"  [green]✓[/green] {md_file}")
+    console.print(f"  [green]✓[/green] {json_file}")
+    for router in routers:
+        if router.connection_successful:
+            console.print(f"  [green]✓[/green] {output_path}/{router.identity}/... (split files)")
+    console.print(f"  [green]✓[/green] {map_file}")
+    console.print("\n[bold green]✓ Stats & OSPF export completed![/bold green]\n")
+
+
+def _save_ospf_json(all_ospf_data: list[dict], filepath) -> None:
+    """
+    Save consolidated OSPF configuration to a JSON file.
+
+    Serializes all OSPF data using Pydantic model_dump for structured,
+    AI-readable output.
+
+    Parameters:
+        all_ospf_data (list[dict]): OSPF data collected from all routers.
+        filepath: Path to the output JSON file.
+    """
+    import json
+    from datetime import datetime
+
+    export = {
+        "generated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "total_routers": len(all_ospf_data),
+        "routers": [],
+    }
+
+    for data in all_ospf_data:
+        router_entry = {
+            "host": data["host"],
+            "identity": data["identity"],
+            "connection_successful": not data.get("error", False),
+        }
+
+        if data.get("error"):
+            router_entry["ospf"] = None
+        else:
+            router_entry["ospf"] = {
+                "instances": [inst.model_dump() for inst in data.get("instances", [])],
+                "areas": [area.model_dump() for area in data.get("areas", [])],
+                "networks": [net.model_dump() for net in data.get("networks", [])],
+                "interfaces": [iface.model_dump() for iface in data.get("interfaces", [])],
+                "neighbors": [neigh.model_dump() for neigh in data.get("neighbors", [])],
+            }
+
+        export["routers"].append(router_entry)
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(export, f, indent=2, ensure_ascii=False)
+
+
+def _save_ospf_markdown(all_ospf_data: list[dict], filepath) -> None:
+    """
+    Save consolidated OSPF configuration to a markdown file.
+
+    Parameters:
+        all_ospf_data (list[dict]): OSPF data collected from all routers.
+        filepath: Path to the output markdown file.
+    """
+    from datetime import datetime
+
+    lines: list[str] = []
+    lines.append("# OSPF Configuration Export\n")
+    lines.append(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    lines.append(f"**Total Routers:** {len(all_ospf_data)}\n")
+    lines.append("---\n")
+
+    for data in all_ospf_data:
+        identity = data["identity"]
+        host = data["host"]
+        lines.append(f"## {identity} ({host})\n")
+
+        if data.get("error"):
+            lines.append("> ⚠️ Connection failed\n")
+            lines.append("---\n")
+            continue
+
+        # Instances
+        instances = data.get("instances", [])
+        lines.append("### Instances\n")
+        if instances:
+            lines.append("| Name | Router ID | Redist. Connected | Redist. Static | Metric Default | Disabled |")
+            lines.append("|------|-----------|-------------------|----------------|----------------|----------|")
+            for inst in instances:
+                lines.append(
+                    f"| {inst.name} | {inst.router_id or '-'} | "
+                    f"{inst.redistribute_connected or '-'} | {inst.redistribute_static or '-'} | "
+                    f"{inst.metric_default or '-'} | {'Yes' if inst.disabled else 'No'} |"
+                )
+        else:
+            lines.append("_No instances configured_\n")
+        lines.append("")
+
+        # Areas
+        areas = data.get("areas", [])
+        lines.append("### Areas\n")
+        if areas:
+            lines.append("| Name | Area ID | Instance | Type | Disabled |")
+            lines.append("|------|---------|----------|------|----------|")
+            for area in sorted(areas, key=lambda a: a.area_id):
+                lines.append(
+                    f"| {area.name} | {area.area_id} | {area.instance or '-'} | "
+                    f"{area.area_type or 'default'} | {'Yes' if area.disabled else 'No'} |"
+                )
+        else:
+            lines.append("_No areas configured_\n")
+        lines.append("")
+
+        # Networks
+        networks = data.get("networks", [])
+        lines.append("### Networks\n")
+        if networks:
+            lines.append("| Network | Area | Disabled | Comment |")
+            lines.append("|---------|------|----------|---------|")
+            for net in sorted(networks, key=lambda n: n.network):
+                lines.append(
+                    f"| {net.network} | {net.area or '-'} | "
+                    f"{'Yes' if net.disabled else 'No'} | {net.comment or '-'} |"
+                )
+        else:
+            lines.append("_No networks configured_\n")
+        lines.append("")
+
+        # Interfaces
+        ospf_ifaces = data.get("interfaces", [])
+        lines.append("### Interfaces\n")
+        if ospf_ifaces:
+            lines.append("| Interface | Area | Network Type | Cost | Priority | Auth | Passive | Disabled |")
+            lines.append("|-----------|------|--------------|------|----------|------|---------|----------|")
+            for iface in sorted(ospf_ifaces, key=lambda i: i.interface):
+                lines.append(
+                    f"| {iface.interface} | {iface.area or '-'} | "
+                    f"{iface.network_type or '-'} | {iface.cost or '-'} | "
+                    f"{iface.priority or '-'} | {iface.authentication or 'none'} | "
+                    f"{'Yes' if iface.passive else 'No'} | {'Yes' if iface.disabled else 'No'} |"
+                )
+        else:
+            lines.append("_No OSPF interfaces configured_\n")
+        lines.append("")
+
+        # Neighbors
+        neighbors = data.get("neighbors", [])
+        lines.append("### Neighbors\n")
+        if neighbors:
+            lines.append("| Address | Router ID | State | Interface | Instance | Priority | State Changes |")
+            lines.append("|---------|-----------|-------|-----------|----------|----------|---------------|")
+            for neigh in sorted(neighbors, key=lambda n: n.address):
+                lines.append(
+                    f"| {neigh.address} | {neigh.router_id or '-'} | "
+                    f"{neigh.state or '-'} | {neigh.interface or '-'} | "
+                    f"{neigh.instance or '-'} | "
+                    f"{neigh.priority or '-'} | {neigh.state_changes or '-'} |"
+                )
+        else:
+            lines.append("_No OSPF neighbors found_\n")
+        lines.append("")
+
+        lines.append("---\n")
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+
 def _run_report_only_mode(args, config: dict) -> None:
     """
     Run report-only mode - collect minimal data and generate markdown report only.
@@ -347,8 +582,8 @@ def _run_normal_mode(args, config: dict) -> None:
     if "json" in formats:
         console.print("[cyan]Saving JSON files per router...[/cyan]")
         for router in routers:
-            json_path = inventory_manager.save_router_json(router)
-            console.print(f"[green]✓[/green] JSON saved: {json_path}")
+            json_dir = inventory_manager.save_router_json(router)
+            console.print(f"[green]✓[/green] JSON files saved in: {json_dir}/")
 
     if "yaml" in formats:
         console.print("[cyan]Saving YAML files per router...[/cyan]")
@@ -430,6 +665,11 @@ def main() -> None:
             # Generate report only mode - collect data, no backups, no configuration
             console.print("[bold cyan]Generate report only mode...[/bold cyan]")
             _run_report_only_mode(args, config)
+
+        elif args.stats_only:
+            # Stats only mode
+            console.print("[bold cyan]Stats-only mode (Network Stats + OSPF)...[/bold cyan]")
+            _run_stats_only_mode(args, config)
 
         elif args.backup_only:
             # Backup only mode
