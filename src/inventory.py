@@ -507,12 +507,11 @@ class InventoryManager:
             Path: Path to the router's backup directory.
         """
         router_dir = self.get_router_directory(router_identity)
-        backup_dir = router_dir / "backups"
+        
+        router_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Router backup directory: {router_dir}")
 
-        backup_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Router backup directory: {backup_dir}")
-
-        return backup_dir
+        return router_dir
 
     def get_router_stats_directory(self, router_identity: str) -> Path:
         """
