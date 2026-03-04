@@ -12,6 +12,7 @@ from models import (
     IPService,
     IPServiceConfig,
     LoggingTopicConfig,
+    RoMONConfig,
     SNMPCommunityConfig,
     SNMPConfig,
     SyslogConfig,
@@ -432,4 +433,37 @@ class ConfigOpsMixin:
 
         except Exception as e:
             logger.error(f"Error configuring SNMP communities: {e}")
+            return False
+
+    def configure_romon(self, config: RoMONConfig) -> bool:
+        """
+        Configure RoMON settings on the router.
+
+        Parameters:
+            config (RoMONConfig): RoMON configuration settings.
+
+        Returns:
+            bool: True if changes were made, False otherwise.
+        """
+        try:
+            resource = self.api.get_resource("/tool/romon")
+            
+            params = {
+                "enabled": "yes" if config.enabled else "no",
+            }
+
+            if config.id:
+                params["id"] = config.id
+                
+            if config.secrets is not None and len(config.secrets) > 0:
+                params["secrets"] = ",".join(config.secrets)
+            else:
+                params["secrets"] = '""'
+
+            resource.call("set", params)
+            logger.info("Configured RoMON settings")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error configuring RoMON: {e}")
             return False

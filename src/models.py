@@ -163,6 +163,9 @@ class Router(BaseModel):
     schedulers: List[Scheduler] = Field(default_factory=list, description="System schedulers")
     routes: List[Route] = Field(default_factory=list, description="Static and dynamic routes")
     ip_pools: List[IPPool] = Field(default_factory=list, description="IP address pools")
+    bridges: Optional[Dict] = Field(None, description="Bridge interfaces and ports")
+    vlans: Optional[Dict] = Field(None, description="VLAN configurations")
+    firewall: Optional[Dict] = Field(None, description="Firewall rules (filter, NAT, mangle, address lists)")
     ospf: Optional[Dict] = Field(None, description="OSPF configuration")
 
     # Metadata
@@ -287,6 +290,13 @@ class SNMPConfig(BaseModel):
     trap_version: int = Field(default=2, description="Trap version: 1, 2, or 3")
     communities: List[SNMPCommunityConfig] = Field(default_factory=list, description="SNMP communities")
 
+
+class RoMONConfig(BaseModel):
+    """Represents RoMON configuration."""
+
+    enabled: bool = Field(default=False, description="Enable/disable RoMON")
+    id: Optional[str] = Field(None, description="Optional RoMON ID (MAC address format)")
+    secrets: List[str] = Field(default_factory=list, description="List of RoMON secrets")
 
 # --- OSPF Models ---
 

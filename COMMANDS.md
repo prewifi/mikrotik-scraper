@@ -44,6 +44,12 @@ python3 src/main.py --configure-snmp       # Inventory + Configure SNMP
 python3 src/main.py --configure-snmp-only  # Configure SNMP only
 ```
 
+### RoMON Configuration
+```bash
+python3 src/main.py --configure-romon       # Inventory + Configure RoMON
+python3 src/main.py --configure-romon-only  # Configure RoMON only
+```
+
 ## Running with Docker
 
 ```bash

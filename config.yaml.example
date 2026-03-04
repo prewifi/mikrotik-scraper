@@ -63,6 +63,7 @@ collection:
   max_workers: 5   # Maximum parallel workers (if parallel is true)
   retry_failed: false  # Retry failed connections
   retry_attempts: 2    # Number of retry attempts
+  retry_delay: 5       # Seconds to wait between retries
   collect:
     system_info: true  # System resource information
     interfaces: true   # Network interfaces
@@ -223,3 +224,16 @@ snmp:
       authentication_password: "auth-password"
       encryption_protocol: "AES"
       encryption_password: "enc-password"
+
+# =============================================================================
+# RoMON Configuration
+# =============================================================================
+romon:
+  enabled: true
+  # Optional ID (MAC address format, e.g., "00:11:22:33:44:55")
+  # id: "00:00:00:00:00:00"
+  
+  # List of secrets (will overwrite existing secrets)
+  secrets:
+    - "my-secret-1"
+    - "my-secret-2"

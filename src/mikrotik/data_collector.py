@@ -303,6 +303,89 @@ class DataCollectorMixin:
 
         return pools
 
+    def get_bridges(self) -> Dict:
+        """
+        Get bridge interfaces with their ports.
+
+        Returns:
+            Dict: Dictionary with 'bridges' and 'ports' keys.
+        """
+        result: Dict = {"bridges": [], "ports": []}
+        try:
+            resource = self.api.get_resource("/interface/bridge")
+            result["bridges"] = resource.get()
+        except Exception as e:
+            logger.error(f"Error getting bridges: {e}")
+
+        try:
+            port_resource = self.api.get_resource("/interface/bridge/port")
+            result["ports"] = port_resource.get()
+        except Exception as e:
+            logger.error(f"Error getting bridge ports: {e}")
+
+        return result
+
+    def get_vlans(self) -> Dict:
+        """
+        Get VLAN configurations from /interface/vlan and /interface/bridge/vlan.
+
+        Returns:
+            Dict: Dictionary with 'interface_vlans' and 'bridge_vlans' keys.
+        """
+        result: Dict = {"interface_vlans": [], "bridge_vlans": []}
+        try:
+            resource = self.api.get_resource("/interface/vlan")
+            result["interface_vlans"] = resource.get()
+        except Exception as e:
+            logger.error(f"Error getting interface VLANs: {e}")
+
+        try:
+            resource = self.api.get_resource("/interface/bridge/vlan")
+            result["bridge_vlans"] = resource.get()
+        except Exception as e:
+            logger.error(f"Error getting bridge VLANs: {e}")
+
+        return result
+
+    def get_firewall(self) -> Dict:
+        """
+        Get firewall configuration: filter rules, NAT, mangle, and address lists.
+
+        Returns:
+            Dict: Dictionary with 'filter', 'nat', 'mangle', 'address_lists' keys.
+        """
+        firewall: Dict = {}
+
+        try:
+            resource = self.api.get_resource("/ip/firewall/filter")
+            firewall["filter"] = resource.get()
+        except Exception as e:
+            logger.error(f"Error getting firewall filter rules: {e}")
+            firewall["filter"] = []
+
+        try:
+            resource = self.api.get_resource("/ip/firewall/nat")
+            firewall["nat"] = resource.get()
+        except Exception as e:
+            logger.error(f"Error getting firewall NAT rules: {e}")
+            firewall["nat"] = []
+
+        try:
+            resource = self.api.get_resource("/ip/firewall/mangle")
+            firewall["mangle"] = resource.get()
+        except Exception as e:
+            logger.error(f"Error getting firewall mangle rules: {e}")
+            firewall["mangle"] = []
+
+        try:
+            resource = self.api.get_resource("/ip/firewall/address-list")
+            firewall["address_lists"] = resource.get()
+        except Exception as e:
+            logger.error(f"Error getting firewall address lists: {e}")
+            firewall["address_lists"] = []
+
+        return firewall
+
     def collect_all_data(
         self, collection_options: Optional[Dict] = None
     ) -> Tuple[Optional[Router], Optional[str]]:
@@ -337,6 +420,9 @@ class DataCollectorMixin:
             schedulers = []
             routes = []
             ip_pools = []
+            bridges_config = None
+            vlans_config = None
+            firewall_config = None
             ospf_config = None
 
             if collection_options.get("interfaces", True):
@@ -365,6 +451,15 @@ class DataCollectorMixin:
             if collection_options.get("ip_pools", True):
                 ip_pools = self.get_ip_pools()
 
+            if collection_options.get("bridges", True):
+                bridges_config = self.get_bridges()
+
+            if collection_options.get("vlans", True):
+                vlans_config = self.get_vlans()
+
+            if collection_options.get("firewall", True):
+                firewall_config = self.get_firewall()
+
             if collection_options.get("ospf", True):
                 ospf_config = self.collect_ospf_config()
 
@@ -381,6 +476,9 @@ class DataCollectorMixin:
                 schedulers=schedulers,
                 routes=routes,
                 ip_pools=ip_pools,
+                bridges=bridges_config,
+                vlans=vlans_config,
+                firewall=firewall_config,
                 ospf=ospf_config,
             )
 

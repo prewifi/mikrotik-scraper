@@ -21,6 +21,7 @@ from mikrotik_client import MikrotikClient
 from models import (
     IPServiceConfig,
     LoggingTopicConfig,
+    RoMONConfig,
     SNMPCommunityConfig,
     SNMPConfig,
     SyslogConfig,
@@ -417,6 +418,91 @@ def configure_snmp_all_routers(config: Dict) -> Tuple[int, int]:
                     failed += 1
             except Exception as e:
                 logger.error(f"Error configuring SNMP on {host}: {e}")
+                failed += 1
+
+            progress.advance(task)
+
+    console.print(f"\n[green]Successful: {successful}[/green]")
+    console.print(f"[red]Failed: {failed}[/red]")
+
+    return successful, failed
+
+
+def configure_romon_all_routers(config: Dict) -> Tuple[int, int]:
+    """
+    Configure RoMON on all routers defined in config.
+
+    Parameters:
+        config (Dict): Configuration dictionary.
+
+    Returns:
+        Tuple[int, int]: (successful, failed) counts.
+    """
+    romon_config_dict = config.get("romon", {})
+    if not romon_config_dict:
+        console.print("[yellow]No RoMON configuration found in config[/yellow]")
+        return 0, 0
+
+    # Create RoMONConfig
+    romon_settings = RoMONConfig(
+        enabled=romon_config_dict.get("enabled", False),
+        id=romon_config_dict.get("id"),
+        secrets=romon_config_dict.get("secrets", []),
+    )
+
+    routers_config = config.get("routers", [])
+    if not routers_config:
+        console.print("[yellow]No routers defined in configuration[/yellow]")
+        return 0, 0
+
+    total_routers = len(routers_config)
+    successful = 0
+    failed = 0
+
+    console.print(
+        f"\n[bold cyan]Configuring RoMON on {total_routers} router(s)...[/bold cyan]\n"
+    )
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeRemainingColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("[cyan]Configuring RoMON...", total=total_routers)
+
+        for router_conf in routers_config:
+            host = router_conf.get("ip") or router_conf.get("host")
+            username = router_conf.get(
+                "username", config.get("default_credentials", {}).get("username")
+            )
+            password = router_conf.get(
+                "password", config.get("default_credentials", {}).get("password")
+            )
+            port = router_conf.get("port", 8728)
+
+            progress.update(task, description=f"[cyan]Configuring RoMON on {host}...")
+
+            client = MikrotikClient(host, username, password, port)
+
+            try:
+                if client.connect():
+                    logger.info(f"Connected to {host} for RoMON configuration")
+
+                    # Configure RoMON
+                    if client.configure_romon(romon_settings):
+                        successful += 1
+                    else:
+                        failed += 1
+
+                    client.disconnect()
+                else:
+                    logger.error(f"Failed to connect to {host}")
+                    failed += 1
+            except Exception as e:
+                logger.error(f"Error configuring RoMON on {host}: {e}")
                 failed += 1
 
             progress.advance(task)

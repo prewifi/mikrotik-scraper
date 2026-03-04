@@ -20,6 +20,7 @@ from cli import parse_args
 from collectors import collect_all_routers
 from config_orchestrator import (
     configure_ip_services_all_routers,
+    configure_romon_all_routers,
     configure_snmp_all_routers,
     configure_syslog_all_routers,
     configure_users_and_groups,
@@ -620,6 +621,21 @@ def _run_normal_mode(args, config: dict) -> None:
     if should_configure_users:
         configure_users_and_groups(config)
 
+    # Configure Syslog if requested or enabled
+    syslog_config = config.get("syslog", {})
+    if args.configure_syslog or syslog_config.get("enabled", False):
+        configure_syslog_all_routers(config)
+
+    # Configure SNMP if requested or enabled
+    snmp_config = config.get("snmp", {})
+    if args.configure_snmp or snmp_config.get("enabled", False):
+        configure_snmp_all_routers(config)
+
+    # Configure RoMON if requested or enabled
+    romon_config = config.get("romon", {})
+    if args.configure_romon or romon_config.get("enabled", False):
+        configure_romon_all_routers(config)
+
     # Perform backup if requested
     if args.backup:
         backup_all_routers(routers, config, router_configs)
@@ -660,6 +676,11 @@ def main() -> None:
             # Configure SNMP only mode
             console.print("[bold cyan]SNMP configuration only mode...[/bold cyan]")
             configure_snmp_all_routers(config)
+
+        elif args.configure_romon_only:
+            # Configure RoMON only mode
+            console.print("[bold cyan]RoMON configuration only mode...[/bold cyan]")
+            configure_romon_all_routers(config)
 
         elif args.generate_report_only:
             # Generate report only mode - collect data, no backups, no configuration

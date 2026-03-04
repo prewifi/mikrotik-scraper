@@ -102,6 +102,9 @@ class InventoryManager:
                 "schedulers": router.schedulers,
                 "staticroutes": [r for r in router.routes if r.static],
                 "ippools": router.ip_pools,
+                "bridges": router.bridges,
+                "vlans": router.vlans,
+                "firewall": router.firewall,
                 "ospf": router.ospf,
             }
 

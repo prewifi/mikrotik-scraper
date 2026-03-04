@@ -25,6 +25,8 @@ class CLIArgs(NamedTuple):
     configure_syslog_only: bool
     configure_snmp: bool
     configure_snmp_only: bool
+    configure_romon: bool
+    configure_romon_only: bool
     generate_report_only: bool
     stats_only: bool
 
@@ -126,6 +128,18 @@ def create_parser() -> argparse.ArgumentParser:
         help="Only configure SNMP (skip inventory and backup)",
     )
 
+    # RoMON configuration options
+    parser.add_argument(
+        "--configure-romon",
+        action="store_true",
+        help="Configure RoMON on all routers",
+    )
+    parser.add_argument(
+        "--configure-romon-only",
+        action="store_true",
+        help="Only configure RoMON (skip inventory and backup)",
+    )
+
     # Report generation options
     parser.add_argument(
         "--generate-report-only",
@@ -171,6 +185,8 @@ def parse_args(args: list[str] | None = None) -> CLIArgs:
         configure_syslog_only=parsed.configure_syslog_only,
         configure_snmp=parsed.configure_snmp,
         configure_snmp_only=parsed.configure_snmp_only,
+        configure_romon=parsed.configure_romon,
+        configure_romon_only=parsed.configure_romon_only,
         generate_report_only=parsed.generate_report_only,
         stats_only=parsed.stats_only,
     )
