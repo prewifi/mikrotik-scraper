@@ -217,15 +217,23 @@ def configure_users_and_groups(config: Dict) -> Tuple[int, int]:
                 if client.connect():
                     logger.info(f"Connected to {host} for user management")
 
+                    all_ok = True
+
                     # Configure Groups
                     for group_conf in groups_config:
-                        client.ensure_user_group(group_conf)
+                        if not client.ensure_user_group(group_conf):
+                            all_ok = False
 
                     # Configure Users
                     for user_conf in users_config:
-                        client.ensure_user(user_conf)
+                        if not client.ensure_user(user_conf):
+                            all_ok = False
 
-                    successful += 1
+                    if all_ok:
+                        successful += 1
+                    else:
+                        failed += 1
+
                     client.disconnect()
                 else:
                     logger.error(f"Failed to connect to {host}")
@@ -310,14 +318,22 @@ def configure_syslog_all_routers(config: Dict) -> Tuple[int, int]:
                 if client.connect():
                     logger.info(f"Connected to {host} for syslog configuration")
 
+                    all_ok = True
+
                     # Configure syslog action (src_address is the router's IP)
-                    client.configure_syslog(syslog_settings, src_address=host)
+                    if not client.configure_syslog(syslog_settings, src_address=host):
+                        all_ok = False
 
                     # Configure logging topics
                     if topics_config:
-                        client.configure_logging_topics(topics_config)
+                        if not client.configure_logging_topics(topics_config):
+                            all_ok = False
 
-                    successful += 1
+                    if all_ok:
+                        successful += 1
+                    else:
+                        failed += 1
+
                     client.disconnect()
                 else:
                     logger.error(f"Failed to connect to {host}")
@@ -409,9 +425,11 @@ def configure_snmp_all_routers(config: Dict) -> Tuple[int, int]:
                     system_identity = client.get_identity()
 
                     # Configure SNMP (this also configures communities)
-                    client.configure_snmp(snmp_settings, system_identity=system_identity)
+                    if client.configure_snmp(snmp_settings, system_identity=system_identity):
+                        successful += 1
+                    else:
+                        failed += 1
 
-                    successful += 1
                     client.disconnect()
                 else:
                     logger.error(f"Failed to connect to {host}")

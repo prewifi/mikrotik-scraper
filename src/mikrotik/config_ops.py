@@ -345,6 +345,8 @@ class ConfigOpsMixin:
         """
         Configure SNMP general settings on the router.
 
+        Communities are created FIRST so they can be referenced as trap-community.
+
         Parameters:
             config (SNMPConfig): SNMP configuration settings.
             system_identity (Optional[str]): System identity to use as location if not specified.
@@ -353,6 +355,11 @@ class ConfigOpsMixin:
             bool: True if changes were made, False otherwise.
         """
         try:
+            # Configure communities FIRST (must exist before being referenced as trap-community)
+            if config.communities:
+                if not self.configure_snmp_communities(config.communities):
+                    return False
+
             resource = self.api.get_resource("/snmp")
             
             params = {
@@ -371,10 +378,6 @@ class ConfigOpsMixin:
 
             resource.call("set", params)
             logger.info("Configured SNMP settings")
-
-            # Configure communities if provided
-            if config.communities:
-                self.configure_snmp_communities(config.communities)
 
             return True
 
