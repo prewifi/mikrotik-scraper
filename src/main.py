@@ -118,9 +118,13 @@ def _run_backup_only_mode(config: dict) -> None:
     sftp_port = sftp_config.get("port", 22)
     sftp_timeout = sftp_config.get("timeout", 30)
 
+    from datetime import datetime
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+
     backup_manager = BackupManager(
         backup_dir=backup_config.get("directory", "inventory"),
         use_sftp=sftp_enabled,
+        run_timestamp=ts,
     )
 
     # Track results for report
@@ -168,10 +172,9 @@ def _run_backup_only_mode(config: dict) -> None:
 
                 # Export configuration via SSH (API doesn't support export)
                 if backup_config.get("export_config", True):
-                    timestamp = time.strftime("%Y%m%d")
                     clean_identity = identity.replace(" ", "_").replace("/", "_").upper()
-                    export_name = f"{timestamp}_{clean_identity}"
-                    export_name_verbose = f"{timestamp}_{clean_identity}_verbose"
+                    export_name = f"{ts}_{clean_identity}"
+                    export_name_verbose = f"{ts}_{clean_identity}_verbose"
 
                     # Use SSH to execute export commands
                     export_sftp = SFTPClientManager(
@@ -273,6 +276,10 @@ def _run_stats_only_mode(args, config: dict) -> None:
     from datetime import datetime
     from ospf_map import generate_ospf_map
 
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    date_str = ts.split("_")[0]
+    time_str = ts.split("_")[1]
+
     # -- 1. Standard Stats Collection (INCLUDES OSPF) --
     routers = collect_all_routers(config)
     
@@ -283,7 +290,7 @@ def _run_stats_only_mode(args, config: dict) -> None:
     output_dir = args.output_dir or config.get("output", {}).get("directory", "output")
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    inventory_manager = InventoryManager(str(output_path))
+    inventory_manager = InventoryManager(str(output_path), run_timestamp=ts)
     
     console.print(f"\n[bold cyan]Saving standard inventory to: {output_dir}[/bold cyan]\n")
     console.print("[cyan]Saving JSON files per router...[/cyan]")
@@ -311,34 +318,62 @@ def _run_stats_only_mode(args, config: dict) -> None:
             fail_count += 1
             failed_hosts.append(router.ip_address)
 
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     console.print()
 
-    md_file = output_path / f"ospf_export_{ts}.md"
+    ospf_dir = output_path / date_str / time_str / "[OSPF]"
+    ospf_dir.mkdir(parents=True, exist_ok=True)
+
+    md_file = ospf_dir / f"ospf_export_{ts}.md"
     _save_ospf_markdown(all_ospf_data, md_file)
 
-    json_file = output_path / f"ospf_export_{ts}.json"
+    json_file = ospf_dir / f"ospf_export_{ts}.json"
     _save_ospf_json(all_ospf_data, json_file)
 
-    map_file = output_path / f"ospf_map_{ts}.html"
+    map_file = ospf_dir / f"ospf_map_{ts}.html"
     generate_ospf_map(str(json_file), str(map_file))
 
     # Final summary
     total = len(routers)
+    partial_errors = sum(1 for r in routers if r.connection_successful and getattr(r, "errors", []))
+    
     console.print("[bold]─── Summary ───[/bold]")
     console.print(f"  Routers analyzed: [bold]{success_count}[/bold]/{total}")
     if fail_count:
         console.print(f"  [red]Errors: {fail_count}[/red]")
         for h in failed_hosts:
             console.print(f"    [red]✗[/red] {h}")
-    else:
+    elif not partial_errors:
         console.print("  [green]Errors: 0[/green]")
+        
+    errors_file = None
+    if partial_errors:
+        errors_file = output_path / date_str / time_str / f"collection_errors_{ts}.log"
+        errors_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(errors_file, "w", encoding="utf-8") as f:
+            f.write(f"COLLECTION ERRORS REPORT - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("=" * 60 + "\n\n")
+            for router in routers:
+                if router.connection_successful and getattr(router, "errors", []):
+                    f.write(f"Router: {router.identity} ({router.ip_address})\n")
+                    for err in router.errors:
+                        f.write(f"  - {err}\n")
+                    f.write("\n")
+
+        console.print(f"  [yellow]Warnings (Partial Collections): {partial_errors}[/yellow]")
+        for router in routers:
+            if router.connection_successful and getattr(router, "errors", []):
+                console.print(f"    [yellow]![/yellow] {router.identity} ({router.ip_address})")
+                for err in router.errors:
+                    console.print(f"      - {err}")
+
     console.print()
+    if errors_file:
+        console.print(f"  [yellow]✓[/yellow] {errors_file}")
     console.print(f"  [green]✓[/green] {md_file}")
     console.print(f"  [green]✓[/green] {json_file}")
     for router in routers:
         if router.connection_successful:
-            console.print(f"  [green]✓[/green] {output_path}/{router.identity}/... (split files)")
+            console.print(f"  [green]✓[/green] {output_path}/{date_str}/{time_str}/{router.identity}/... (split files)")
     console.print(f"  [green]✓[/green] {map_file}")
     console.print("\n[bold green]✓ Stats & OSPF export completed![/bold green]\n")
 
@@ -525,7 +560,7 @@ def _run_report_only_mode(args, config: dict) -> None:
 
     # Save only the markdown report
     output_dir = args.output_dir or config.get("output", {}).get("directory", "output")
-    inventory_manager = InventoryManager(output_dir)
+    inventory_manager = InventoryManager(output_dir, run_timestamp=datetime.now().strftime("%Y%m%d_%H%M%S"))
 
     console.print(f"\n[bold cyan]Generating markdown report to: {output_dir}[/bold cyan]\n")
 
@@ -568,7 +603,8 @@ def _run_normal_mode(args, config: dict) -> None:
 
     # Save inventory
     output_dir = args.output_dir or config.get("output", {}).get("directory", "output")
-    inventory_manager = InventoryManager(output_dir)
+    run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    inventory_manager = InventoryManager(output_dir, run_timestamp=run_ts)
 
     console.print(f"\n[bold cyan]Saving inventory to: {output_dir}[/bold cyan]\n")
 
@@ -599,6 +635,24 @@ def _run_normal_mode(args, config: dict) -> None:
     # Always generate the consolidated router markdown report
     md_path = inventory_manager.save_routers_markdown(inventory)
     console.print(f"[green]✓[/green] Router info markdown saved: {md_path}")
+
+    # Save collection errors if any
+    partial_errors = sum(1 for r in routers if getattr(r, "errors", []))
+    if partial_errors:
+        run_date = run_ts.split("_")[0]
+        run_time = run_ts.split("_")[1]
+        errors_file = Path(output_dir) / run_date / run_time / f"collection_errors_{run_ts}.log"
+        errors_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(errors_file, "w", encoding="utf-8") as f:
+            f.write(f"COLLECTION ERRORS REPORT - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("=" * 60 + "\n\n")
+            for router in routers:
+                if getattr(router, "errors", []):
+                    f.write(f"Router: {router.identity} ({router.ip_address})\n")
+                    for err in router.errors:
+                        f.write(f"  - {err}\n")
+                    f.write("\n")
+        console.print(f"[yellow]✓[/yellow] Collection errors log saved: {errors_file}")
 
     console.print("\n[bold green]✓ Inventory collection completed successfully![/bold green]\n")
 

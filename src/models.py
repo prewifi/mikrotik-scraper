@@ -174,6 +174,7 @@ class Router(BaseModel):
     )
     connection_successful: bool = Field(default=True, description="Connection status")
     connection_error: Optional[str] = Field(None, description="Connection error message")
+    errors: List[str] = Field(default_factory=list, description="Collection errors")
 
 
 class Link(BaseModel):

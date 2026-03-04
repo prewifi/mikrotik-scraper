@@ -33,6 +33,7 @@ class BackupManager:
         self,
         backup_dir: str = "inventory",
         use_sftp: bool = True,
+        run_timestamp: Optional[str] = None,
     ):
         """
         Initialize the backup manager.
@@ -40,10 +41,15 @@ class BackupManager:
         Parameters:
             backup_dir (str): Base directory for storing backups (default: "inventory").
             use_sftp (bool): Whether to use SFTP for file transfer (default: True).
+            run_timestamp (Optional[str]): Global timestamp in YYYYMMDD_HHMMSS format.
         """
         self.backup_dir = Path(backup_dir)
         self.backup_dir.mkdir(parents=True, exist_ok=True)
         self.use_sftp = use_sftp
+        
+        self.run_timestamp = run_timestamp or time.strftime("%Y%m%d_%H%M%S")
+        self.run_date = self.run_timestamp.split("_")[0]
+        self.run_time = self.run_timestamp.split("_")[1]
 
     def create_backup(
         self,
@@ -65,7 +71,6 @@ class BackupManager:
             Tuple[bool, Optional[str]]: (Success status, backup filename if successful).
         """
         if backup_name is None:
-            timestamp = time.strftime("%Y%m%d")
             # Get system identity from router
             try:
                 identity_resource = api.get_resource("/system/identity")
@@ -75,7 +80,7 @@ class BackupManager:
                 system_identity = router.identity
             # Remove spaces and special chars from identity for filename
             clean_identity = system_identity.replace(" ", "_").replace("/", "_").upper()
-            backup_name = f"{timestamp}_{clean_identity}"
+            backup_name = f"{self.run_timestamp}_{clean_identity}"
 
         try:
             logger.info(f"Creating backup on {router.identity}: {backup_name}")
@@ -119,7 +124,6 @@ class BackupManager:
             Tuple[bool, Optional[str]]: (Success status, export filename if successful).
         """
         if export_name is None:
-            timestamp = time.strftime("%Y%m%d")
             # Get system identity from router
             try:
                 identity_resource = api.get_resource("/system/identity")
@@ -129,7 +133,7 @@ class BackupManager:
                 system_identity = router.identity
             # Remove spaces and special chars from identity for filename
             clean_identity = system_identity.replace(" ", "_").replace("/", "_").upper()
-            export_name = f"{timestamp}_{clean_identity}"
+            export_name = f"{self.run_timestamp}_{clean_identity}"
 
         try:
             logger.info(f"Exporting configuration from {router.identity}: {export_name}")
@@ -360,24 +364,35 @@ class BackupManager:
         logger.error(f"Failed to list RSC files after {retry_count} attempts")
         return None
 
-    def get_router_backup_dir(self, router_identity: str) -> Path:
+    def get_router_base_dir(self, router_identity: str) -> Path:
         """
-        Get or create the backup directory for a specific router.
+        Get the base directory for a specific router (without date).
 
         Parameters:
             router_identity (str): Router identity/hostname.
 
         Returns:
-            Path: Path to the router's backup directory (inventory/{ROUTER_NAME}).
+            Path: Path to the router's base backup directory (inventory/backups).
         """
-        # Sanitize router identity for use in path
+        return self.backup_dir
+
+    def get_router_backup_dir(self, router_identity: str) -> Path:
+        """
+        Get or create the backup directory for a specific router for the current run timestamp.
+
+        Parameters:
+            router_identity (str): Router identity/hostname.
+
+        Returns:
+            Path: Path to the router's backup directory (inventory/backups/{YYYYMMDD}/{HHMMSS}/{ROUTER_NAME}).
+        """
         safe_identity = router_identity.replace(" ", "_").replace("/", "_").upper()
-        router_dir = self.backup_dir / safe_identity
+        run_dir = self.backup_dir / self.run_date / self.run_time / safe_identity
 
-        router_dir.mkdir(parents=True, exist_ok=True)
-        logger.debug(f"Router backup directory: {router_dir}")
+        run_dir.mkdir(parents=True, exist_ok=True)
+        logger.debug(f"Router run backup directory: {run_dir}")
 
-        return router_dir
+        return run_dir
 
     def cleanup_old_backups(
         self,
@@ -385,7 +400,7 @@ class BackupManager:
         keep_count: int = 5,
     ) -> int:
         """
-        Clean up old backup files, keeping only the most recent ones.
+        Clean up old backup files, keeping only the most recent ones across all daily directories.
 
         Parameters:
             router_identity (str): Router identity/hostname.
@@ -395,11 +410,16 @@ class BackupManager:
             int: Number of files deleted.
         """
         try:
-            router_dir = self.get_router_backup_dir(router_identity)
+            base_dir = self.get_router_base_dir(router_identity)
+            if not base_dir.exists():
+                return 0
 
-            # Get all backup files sorted by modification time
+            safe_identity = router_identity.replace(" ", "_").replace("/", "_").upper()
+
+            # Get all backup files sorted by modification time using rglob, filtered by router
+            all_backups = base_dir.rglob("*.backup")
             backup_files = sorted(
-                router_dir.glob("*.backup"),
+                [f for f in all_backups if f.parent.name == safe_identity],
                 key=lambda p: p.stat().st_mtime,
                 reverse=True,
             )
@@ -412,6 +432,9 @@ class BackupManager:
                         old_file.unlink()
                         deleted_count += 1
                         logger.info(f"Deleted old backup: {old_file}")
+                        
+                        # Note: We could also attempt to remove empty daily directories here,
+                        # but keeping it simple for now to avoid accidental deletions of non-empty dirs.
                     except Exception as e:
                         logger.warning(f"Error deleting old backup {old_file}: {e}")
 
@@ -423,7 +446,7 @@ class BackupManager:
 
     def get_backup_statistics(self, router_identity: str) -> dict:
         """
-        Get statistics about backups for a router.
+        Get statistics about backups for a router across all daily directories.
 
         Parameters:
             router_identity (str): Router identity/hostname.
@@ -432,10 +455,22 @@ class BackupManager:
             dict: Dictionary with backup statistics.
         """
         try:
-            router_dir = self.get_router_backup_dir(router_identity)
+            base_dir = self.get_router_base_dir(router_identity)
+            safe_identity = router_identity.replace(" ", "_").replace("/", "_").upper()
+            
+            if not base_dir.exists():
+                 return {
+                    "router": router_identity,
+                    "backup_count": 0,
+                    "rsc_count": 0,
+                    "total_files": 0,
+                    "total_size_bytes": 0,
+                    "total_size_mb": 0.0,
+                    "backup_dir": str(base_dir),
+                }
 
-            backup_files = list(router_dir.glob("*.backup"))
-            rsc_files = list(router_dir.glob("*.rsc"))
+            backup_files = [f for f in base_dir.rglob("*.backup") if f.parent.name == safe_identity]
+            rsc_files = [f for f in base_dir.rglob("*.rsc") if f.parent.name == safe_identity]
 
             total_size = sum(f.stat().st_size for f in backup_files + rsc_files)
 
@@ -445,8 +480,8 @@ class BackupManager:
                 "rsc_count": len(rsc_files),
                 "total_files": len(backup_files) + len(rsc_files),
                 "total_size_bytes": total_size,
-                "total_size_mb": round(total_size / (1024 * 1024), 2),
-                "backup_dir": str(router_dir),
+                "total_size_mb": round(total_size / (1024 * 1024), 2) if total_size > 0 else 0.0,
+                "backup_dir": str(self.backup_dir),
             }
 
         except Exception as e:

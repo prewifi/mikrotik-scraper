@@ -83,6 +83,15 @@ def display_summary(inventory: NetworkInventory) -> None:
 
         console.print(router_table)
 
+    # Partial errors summary
+    routers_with_errors = [r for r in inventory.routers if getattr(r, "errors", [])]
+    if routers_with_errors:
+        console.print("\n[bold yellow]Warnings (Partial Collections):[/bold yellow]\n")
+        for router in routers_with_errors:
+            console.print(f"  [yellow]![/yellow] {router.identity} ({router.ip_address})")
+            for err in getattr(router, "errors", []):
+                console.print(f"    - {err}")
+
     # Anomalies summary
     if inventory.anomalies:
         console.print("\n[bold red]Anomalies Detected:[/bold red]\n")

@@ -47,6 +47,12 @@ def _safe_int(value: str | int | None, default: int = 0) -> int:
 class DataCollectorMixin:
     """Mixin class for data collection methods."""
 
+    def _add_error(self, message: str) -> None:
+        """Helper to collect non-fatal errors during data extraction."""
+        if not hasattr(self, "collection_errors"):
+            self.collection_errors = []
+        self.collection_errors.append(message)
+
     def get_system_resource(self) -> Optional[SystemResource]:
         """
         Get system resources and version information.
@@ -76,6 +82,7 @@ class DataCollectorMixin:
 
         except Exception as e:
             logger.error(f"Error getting system resources: {e}")
+            self._add_error(f"Error getting system resources: {e}")
             return None
 
     def get_interfaces(self, include_wireless: bool = True) -> List[Interface]:
@@ -108,6 +115,7 @@ class DataCollectorMixin:
 
         except Exception as e:
             logger.error(f"Error getting interfaces: {e}")
+            self._add_error(f"Error getting interfaces: {e}")
 
         return interfaces
 
@@ -134,6 +142,7 @@ class DataCollectorMixin:
 
         except Exception as e:
             logger.error(f"Error getting IP addresses: {e}")
+            self._add_error(f"Error getting IP addresses: {e}")
 
         return addresses
 
@@ -162,6 +171,7 @@ class DataCollectorMixin:
 
         except Exception as e:
             logger.error(f"Error getting neighbors: {e}")
+            self._add_error(f"Error getting neighbors: {e}")
 
         return neighbors
 
@@ -189,6 +199,7 @@ class DataCollectorMixin:
 
         except Exception as e:
             logger.error(f"Error getting active PPPoE connections: {e}")
+            self._add_error(f"Error getting active PPPoE connections: {e}")
 
         return connections
 
@@ -218,6 +229,7 @@ class DataCollectorMixin:
 
         except Exception as e:
             logger.error(f"Error getting PPPoE secrets: {e}")
+            self._add_error(f"Error getting PPPoE secrets: {e}")
 
         return secrets
 
@@ -245,6 +257,7 @@ class DataCollectorMixin:
 
         except Exception as e:
             logger.error(f"Error getting schedulers: {e}")
+            self._add_error(f"Error getting schedulers: {e}")
 
         return schedulers
 
@@ -275,6 +288,7 @@ class DataCollectorMixin:
 
         except Exception as e:
             logger.error(f"Error getting routes: {e}")
+            self._add_error(f"Error getting routes: {e}")
 
         return routes
 
@@ -300,6 +314,7 @@ class DataCollectorMixin:
 
         except Exception as e:
             logger.error(f"Error getting IP pools: {e}")
+            self._add_error(f"Error getting IP pools: {e}")
 
         return pools
 
@@ -316,12 +331,14 @@ class DataCollectorMixin:
             result["bridges"] = resource.get()
         except Exception as e:
             logger.error(f"Error getting bridges: {e}")
+            self._add_error(f"Error getting bridges: {e}")
 
         try:
             port_resource = self.api.get_resource("/interface/bridge/port")
             result["ports"] = port_resource.get()
         except Exception as e:
             logger.error(f"Error getting bridge ports: {e}")
+            self._add_error(f"Error getting bridge ports: {e}")
 
         return result
 
@@ -338,12 +355,14 @@ class DataCollectorMixin:
             result["interface_vlans"] = resource.get()
         except Exception as e:
             logger.error(f"Error getting interface VLANs: {e}")
+            self._add_error(f"Error getting interface VLANs: {e}")
 
         try:
             resource = self.api.get_resource("/interface/bridge/vlan")
             result["bridge_vlans"] = resource.get()
         except Exception as e:
             logger.error(f"Error getting bridge VLANs: {e}")
+            self._add_error(f"Error getting bridge VLANs: {e}")
 
         return result
 
@@ -361,6 +380,7 @@ class DataCollectorMixin:
             firewall["filter"] = resource.get()
         except Exception as e:
             logger.error(f"Error getting firewall filter rules: {e}")
+            self._add_error(f"Error getting firewall filter rules: {e}")
             firewall["filter"] = []
 
         try:
@@ -368,6 +388,7 @@ class DataCollectorMixin:
             firewall["nat"] = resource.get()
         except Exception as e:
             logger.error(f"Error getting firewall NAT rules: {e}")
+            self._add_error(f"Error getting firewall NAT rules: {e}")
             firewall["nat"] = []
 
         try:
@@ -375,6 +396,7 @@ class DataCollectorMixin:
             firewall["mangle"] = resource.get()
         except Exception as e:
             logger.error(f"Error getting firewall mangle rules: {e}")
+            self._add_error(f"Error getting firewall mangle rules: {e}")
             firewall["mangle"] = []
 
         try:
@@ -382,6 +404,7 @@ class DataCollectorMixin:
             firewall["address_lists"] = resource.get()
         except Exception as e:
             logger.error(f"Error getting firewall address lists: {e}")
+            self._add_error(f"Error getting firewall address lists: {e}")
             firewall["address_lists"] = []
 
         return firewall
@@ -403,6 +426,8 @@ class DataCollectorMixin:
             collection_options = {}
 
         try:
+            self.collection_errors = []
+            
             # Connect if not connected
             if not self.is_connected:
                 if not self.connect():
@@ -480,6 +505,7 @@ class DataCollectorMixin:
                 vlans=vlans_config,
                 firewall=firewall_config,
                 ospf=ospf_config,
+                errors=self.collection_errors,
             )
 
             return router, None
@@ -487,3 +513,4 @@ class DataCollectorMixin:
         except Exception as e:
             logger.error(f"Error collecting data from {self.host}: {e}")
             return None, str(e)
+

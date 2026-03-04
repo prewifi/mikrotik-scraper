@@ -7,6 +7,7 @@ to JSON and YAML formats, with support for pretty printing and validation.
 
 import json
 import logging
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -26,15 +27,20 @@ class InventoryManager:
     supporting both JSON and YAML formats with proper validation.
     """
 
-    def __init__(self, output_dir: str = "output"):
+    def __init__(self, output_dir: str = "output", run_timestamp: Optional[str] = None):
         """
         Initialize the inventory manager.
 
         Parameters:
             output_dir (str): Directory for saving inventory files (default: "output").
+            run_timestamp (Optional[str]): Global timestamp in YYYYMMDD_HHMMSS format.
         """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        self.run_timestamp = run_timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.run_date = self.run_timestamp.split("_")[0]
+        self.run_time = self.run_timestamp.split("_")[1]
 
     def save_json(self, inventory: NetworkInventory, filename: Optional[str] = None) -> Path:
         """
@@ -85,7 +91,6 @@ class InventoryManager:
         Returns:
             Path: Path to the router's stats directory.
         """
-        date_str = datetime.now().strftime("%Y%m%d")
         hostname = router.identity.replace(" ", "_").replace("/", "_").upper()
 
         # Save in router's stats directory
@@ -129,7 +134,7 @@ class InventoryManager:
                 else:
                     dump_data = comp_data
                 
-                comp_filename = f"{date_str}-{hostname}-{comp_name}-info.json"
+                comp_filename = f"{self.run_timestamp}-{hostname}-{comp_name}-info.json"
                 comp_filepath = stats_dir / comp_filename
 
                 with open(comp_filepath, "w", encoding="utf-8") as f:
@@ -484,56 +489,51 @@ class InventoryManager:
 
     def get_router_directory(self, router_identity: str) -> Path:
         """
-        Get or create the directory for a specific router.
+        Get the base directory for a specific router for searching across all dates.
 
         Parameters:
             router_identity (str): Router identity/hostname.
 
         Returns:
-            Path: Path to the router's main directory.
+            Path: Path to the router's base directory.
         """
-        # Sanitize router identity for use in path
-        safe_identity = router_identity.replace(" ", "_").replace("/", "_").upper()
-        router_dir = self.output_dir / safe_identity
-
-        router_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Router directory: {router_dir}")
-
-        return router_dir
+        return self.output_dir
 
     def get_router_backup_directory(self, router_identity: str) -> Path:
         """
-        Get or create the backup directory for a specific router.
+        Get or create the backup directory for a specific router for the current run timestamp.
 
         Parameters:
             router_identity (str): Router identity/hostname.
 
         Returns:
-            Path: Path to the router's backup directory.
+            Path: Path to the router's backup directory (YYYYMMDD/HHMMSS/ROUTER_NAME).
         """
-        router_dir = self.get_router_directory(router_identity)
+        safe_identity = router_identity.replace(" ", "_").replace("/", "_").upper()
+        run_dir = self.output_dir / self.run_date / self.run_time / safe_identity
         
-        router_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Router backup directory: {router_dir}")
+        run_dir.mkdir(parents=True, exist_ok=True)
+        logger.debug(f"Router run backup directory: {run_dir}")
 
-        return router_dir
+        return run_dir
 
     def get_router_stats_directory(self, router_identity: str) -> Path:
         """
-        Get or create the stats directory for a specific router.
+        Get or create the stats directory for a specific router for the current run timestamp.
 
         Parameters:
             router_identity (str): Router identity/hostname.
 
         Returns:
-            Path: Path to the router's stats directory.
+            Path: Path to the router's stats directory (results/stats/{YYYYMMDD}/{HHMMSS}/{ROUTER_NAME}).
         """
-        router_dir = self.get_router_directory(router_identity)
+        safe_identity = router_identity.replace(" ", "_").replace("/", "_").upper()
+        run_dir = self.output_dir / self.run_date / self.run_time / safe_identity
         
-        router_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Router stats directory: {router_dir}")
+        run_dir.mkdir(parents=True, exist_ok=True)
+        logger.debug(f"Router run stats directory: {run_dir}")
 
-        return router_dir
+        return run_dir
 
     def cleanup_old_backups(
         self,
@@ -542,7 +542,7 @@ class InventoryManager:
         file_types: list = None,
     ) -> int:
         """
-        Clean up old backup files, keeping only the most recent ones.
+        Clean up old backup files, keeping only the most recent ones across all daily directories.
 
         Parameters:
             router_identity (str): Router identity/hostname.
@@ -556,13 +556,18 @@ class InventoryManager:
             file_types = [".backup", ".rsc"]
 
         try:
-            router_dir = self.get_router_backup_directory(router_identity)
+            base_dir = self.get_router_directory(router_identity)
+            if not base_dir.exists():
+                 return 0
+                 
             deleted_count = 0
+            safe_identity = router_identity.replace(" ", "_").replace("/", "_").upper()
 
             for file_ext in file_types:
-                # Get all files of this type sorted by modification time
+                # Get all files of this type sorted by modification time, filtered by router
+                all_files = base_dir.rglob(f"*{file_ext}")
                 files = sorted(
-                    router_dir.glob(f"*{file_ext}"),
+                    [f for f in all_files if f.parent.name == safe_identity],
                     key=lambda p: p.stat().st_mtime,
                     reverse=True,
                 )
@@ -585,7 +590,7 @@ class InventoryManager:
 
     def get_backup_statistics(self, router_identity: str) -> dict:
         """
-        Get statistics about backups for a router.
+        Get statistics about backups for a router across all daily directories.
 
         Parameters:
             router_identity (str): Router identity/hostname.
@@ -594,10 +599,22 @@ class InventoryManager:
             dict: Dictionary with backup statistics.
         """
         try:
-            router_dir = self.get_router_backup_directory(router_identity)
+            base_dir = self.get_router_directory(router_identity)
+            safe_identity = router_identity.replace(" ", "_").replace("/", "_").upper()
 
-            backup_files = list(router_dir.glob("*.backup"))
-            rsc_files = list(router_dir.glob("*.rsc"))
+            if not base_dir.exists():
+                return {
+                    "router": router_identity,
+                    "backup_count": 0,
+                    "rsc_count": 0,
+                    "total_files": 0,
+                    "total_size_bytes": 0,
+                    "total_size_mb": 0.0,
+                    "backup_dir": str(base_dir),
+                }
+
+            backup_files = [f for f in base_dir.rglob("*.backup") if f.parent.name == safe_identity]
+            rsc_files = [f for f in base_dir.rglob("*.rsc") if f.parent.name == safe_identity]
 
             total_size = sum(f.stat().st_size for f in backup_files + rsc_files)
 
@@ -607,8 +624,8 @@ class InventoryManager:
                 "rsc_count": len(rsc_files),
                 "total_files": len(backup_files) + len(rsc_files),
                 "total_size_bytes": total_size,
-                "total_size_mb": round(total_size / (1024 * 1024), 2),
-                "backup_dir": str(router_dir),
+                "total_size_mb": round(total_size / (1024 * 1024), 2) if total_size > 0 else 0.0,
+                "backup_dir": str(self.output_dir),
             }
 
         except Exception as e:
